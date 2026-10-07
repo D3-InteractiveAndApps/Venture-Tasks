@@ -16,7 +16,7 @@
 // See README.md -> "Setting up accounts and cross-device sync" for the full
 // setup walkthrough, including the SQL to run.
 
-export const SUPABASE_URL = "https://sfxafzhyxoimuabitkjh.supabase.co/rest/v1/";
+export const SUPABASE_URL = "https://sfxafzhyxoimuabitkjh.supabase.co";
 export const SUPABASE_ANON_KEY = "sb_publishable_nwgdhPF-ZRvghmIfb2rtuA_4Je_fxPk";
 
 export function isSupabaseConfigured() {
