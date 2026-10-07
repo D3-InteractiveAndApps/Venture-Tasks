@@ -6,7 +6,7 @@
 <title>Venture Tasks</title>
 <meta name="description" content="A to-do list for people running several small businesses at once.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23e8622c'/%3E%3Crect x='24' y='30' width='52' height='10' rx='4' fill='white'/%3E%3Crect x='24' y='48' width='34' height='10' rx='4' fill='white' opacity='0.85'/%3E%3Crect x='24' y='66' width='42' height='10' rx='4' fill='white' opacity='0.7'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,10 +15,25 @@
   <header class="page-head">
     <div class="page-head-text">
       <p class="eyebrow">Venture Tasks</p>
-      <h1>Professional Tasks</h1>
+      <div class="page-title-row">
+        <h1 class="page-title-wrap"><input id="page-title" type="text" class="page-title" maxlength="60" aria-label="Page title" /></h1>
+        <button id="delete-page-btn" type="button" class="section-del page-del" hidden>Delete page</button>
+      </div>
     </div>
     <button id="settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog">&#9881; Settings</button>
   </header>
+
+  <nav class="tabs" id="tabs" aria-label="Pages"></nav>
+
+  <div class="add-page-form" id="add-page-form" hidden>
+    <input id="new-page-name" type="text" placeholder="Page name&hellip; (e.g. Daily Life)" autocomplete="off" maxlength="60" />
+    <select id="new-page-type">
+      <option value="tasks">To-do list</option>
+      <option value="grocery">Grocery list</option>
+    </select>
+    <button id="add-page-confirm" type="button" class="primary-btn">Add page</button>
+    <button id="add-page-cancel" type="button" class="secondary-btn">Cancel</button>
+  </div>
 
   <div class="toolbar">
     <p class="summary" id="summary">Loading&hellip;</p>
@@ -128,6 +143,32 @@
         <div class="settings-actions">
           <button id="ai-test-btn" type="button" class="secondary-btn" hidden>Test connection</button>
           <span class="settings-status" id="ai-settings-status"></span>
+        </div>
+      </section>
+
+      <section class="settings-section" id="appearance-section">
+        <h3>Appearance</h3>
+        <p class="settings-help">Pick a font, and optionally override the text, window, and background colors used everywhere in the app.</p>
+        <label class="field">
+          <span class="field-label">Font</span>
+          <select id="font-select"></select>
+        </label>
+        <div class="theme-colors">
+          <label class="theme-color-field">
+            <input id="theme-text" type="color" class="color-swatch" aria-label="Text color" />
+            <span class="field-label">Text</span>
+          </label>
+          <label class="theme-color-field">
+            <input id="theme-panel" type="color" class="color-swatch" aria-label="Window color" />
+            <span class="field-label">Windows</span>
+          </label>
+          <label class="theme-color-field">
+            <input id="theme-bg" type="color" class="color-swatch" aria-label="Background color" />
+            <span class="field-label">Background</span>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="theme-reset-btn" type="button" class="secondary-btn">Reset colors</button>
         </div>
       </section>
 
