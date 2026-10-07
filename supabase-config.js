@@ -17,7 +17,7 @@
 // setup walkthrough, including the SQL to run.
 
 export const SUPABASE_URL = "https://sfxafzhyxoimuabitkjh.supabase.co/rest/v1/";
-export const SUPABASE_ANON_KEY = "sb_publishable_nwgdhPF-ZRvghmIfb2rtuA_4Je_fxPk";
+export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmeGFmemh5eG9pbXVhYml0a2poIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzOTM2MDUsImV4cCI6MjEwNjk2OTYwNX0.Jzpc0JGfyIHXtIGcc6o9ryHrBQ8ZW75tHFHwBqh0aeo";
 
 export function isSupabaseConfigured() {
   return (
