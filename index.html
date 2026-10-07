@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Venture Tasks</title>
+<meta name="description" content="A to-do list for people running several small businesses at once.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23e8622c'/%3E%3Crect x='24' y='30' width='52' height='10' rx='4' fill='white'/%3E%3Crect x='24' y='48' width='34' height='10' rx='4' fill='white' opacity='0.85'/%3E%3Crect x='24' y='66' width='42' height='10' rx='4' fill='white' opacity='0.7'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<main>
+  <header class="page-head">
+    <div class="page-head-text">
+      <p class="eyebrow">Venture Tasks</p>
+      <h1>Professional Tasks</h1>
+    </div>
+    <button id="settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog">&#9881; Settings</button>
+  </header>
+
+  <div class="toolbar">
+    <p class="summary" id="summary">Loading&hellip;</p>
+    <button id="review-btn" type="button" class="review-btn" hidden>Weekly review</button>
+  </div>
+
+  <div class="review-panel" id="review-panel" hidden>
+    <div class="review-head">
+      <span class="review-title">Weekly review</span>
+      <button id="review-stop" type="button" class="stop-btn" hidden>Stop</button>
+      <button id="review-close" type="button" class="del-btn" aria-label="Close weekly review">&times;</button>
+    </div>
+    <div class="review-body" id="review-body"></div>
+  </div>
+
+  <div class="sections" id="sections"></div>
+
+  <div class="panel add-section">
+    <input id="new-section" type="text" placeholder="Add a section&hellip; (e.g. a new business or project)" autocomplete="off" maxlength="80" />
+    <button id="add-section-btn" type="button">Add section</button>
+  </div>
+
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <footer class="footer-note">
+    <p>Everything here is stored on this browser (<code>localStorage</code>). Sign in under <strong>Settings &rarr; Account &amp; sync</strong> to keep it synced across computers automatically, or use <strong>Export</strong>/<strong>Import</strong> there to move it by hand.</p>
+  </footer>
+</main>
+
+<div class="modal-overlay" id="settings-overlay" hidden>
+  <div class="modal" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-head">
+      <h2 id="settings-title">Settings</h2>
+      <button id="settings-close" type="button" class="del-btn" aria-label="Close settings">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <section class="settings-section" id="account-section">
+        <h3>Account &amp; sync</h3>
+
+        <p class="settings-help" id="account-not-configured" hidden>
+          Cloud accounts aren&rsquo;t set up for this copy of the app yet &mdash; your task list stays
+          on this browser only. See <strong>README.md</strong> (&ldquo;Setting up accounts and
+          cross-device sync&rdquo;) to turn this on; it takes a free Supabase project and a few
+          minutes.
+        </p>
+
+        <div id="account-form">
+          <p class="settings-help">
+            Sign up to keep your sections and tasks synced across every computer you sign in on.
+            Optional &mdash; without an account, everything still works, stored on this browser only.
+          </p>
+          <label class="field">
+            <span class="field-label">Email</span>
+            <input id="account-email" type="email" autocomplete="username" />
+          </label>
+          <label class="field">
+            <span class="field-label">Password</span>
+            <input id="account-password" type="password" autocomplete="current-password" />
+          </label>
+          <div class="settings-actions">
+            <button id="account-signup-btn" type="button" class="secondary-btn">Sign up</button>
+            <button id="account-signin-btn" type="button" class="primary-btn">Log in</button>
+          </div>
+          <span class="settings-status" id="account-auth-status"></span>
+        </div>
+
+        <div id="account-logged-in" hidden>
+          <p class="settings-help">Signed in as <strong id="account-email-display"></strong>.</p>
+          <div class="settings-actions">
+            <button id="account-signout-btn" type="button" class="secondary-btn">Log out</button>
+            <span class="settings-status" id="account-sync-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>AI co-pilot</h3>
+        <p class="settings-help">
+          Off by default. Connect your own account with whichever provider you already pay for &mdash;
+          your key is stored only in this browser and sent directly from your browser to that provider.
+          It never passes through anything else.
+        </p>
+
+        <label class="field">
+          <span class="field-label">Provider</span>
+          <select id="ai-provider">
+            <option value="none">None (AI features off)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="gemini">Gemini (Google)</option>
+          </select>
+        </label>
+
+        <div id="ai-provider-fields" hidden>
+          <label class="field">
+            <span class="field-label">API key</span>
+            <input id="ai-key" type="password" autocomplete="off" placeholder="Paste your API key" />
+          </label>
+          <label class="field">
+            <span class="field-label" id="ai-model-label">Model</span>
+            <input id="ai-model" type="text" autocomplete="off" />
+          </label>
+          <p class="settings-help" id="ai-model-help"></p>
+        </div>
+
+        <div class="settings-actions">
+          <button id="ai-test-btn" type="button" class="secondary-btn" hidden>Test connection</button>
+          <span class="settings-status" id="ai-settings-status"></span>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>Your data</h3>
+        <p class="settings-help">Export a backup, or move your sections and tasks to another browser or computer.</p>
+        <div class="settings-actions">
+          <button id="export-btn" type="button" class="secondary-btn">Export JSON</button>
+          <label class="secondary-btn file-btn">
+            Import JSON
+            <input id="import-input" type="file" accept="application/json" hidden />
+          </label>
+        </div>
+        <p class="settings-help" id="data-settings-status"></p>
+      </section>
+    </div>
+
+    <div class="modal-foot">
+      <button id="settings-save" type="button" class="primary-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "venture-tasks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A to-do list for people running several small businesses at once — sectioned by venture, with an optional bring-your-own-key AI co-pilot and optional Supabase-backed accounts/sync. Static site, no backend to run yourself — just run a one-line local server to open it (see README).",
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve ."
+  },
+  "license": "UNLICENSED"
+}
