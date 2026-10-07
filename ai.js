@@ -4,9 +4,9 @@
 // straight to that provider's own API.
 
 import { store } from "./store.js";
-import * as claude from "./providers/claude.js";
-import * as openai from "./providers/openai.js";
-import * as gemini from "./providers/gemini.js";
+import * as claude from "./claude.js";
+import * as openai from "./openai.js";
+import * as gemini from "./gemini.js";
 
 export const PROVIDERS = { claude, openai, gemini };
 
