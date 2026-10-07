@@ -1,8 +1,9 @@
 // settings.js — the Settings modal: account/sync + AI provider connection +
-// export/import.
+// appearance (font/colors) + export/import.
 
 import { todayStr } from "./dates.js";
 import * as sync from "./sync.js";
+import { FONT_OPTIONS, applyTheme } from "./theme.js";
 
 export function initSettings(store, ai, onAiChange) {
   const overlay = document.getElementById("settings-overlay");
@@ -31,9 +32,56 @@ export function initSettings(store, ai, onAiChange) {
   const testBtn = document.getElementById("ai-test-btn");
   const aiStatus = document.getElementById("ai-settings-status");
 
+  const fontSelect = document.getElementById("font-select");
+  const themeText = document.getElementById("theme-text");
+  const themePanel = document.getElementById("theme-panel");
+  const themeBg = document.getElementById("theme-bg");
+  const themeResetBtn = document.getElementById("theme-reset-btn");
+
   const exportBtn = document.getElementById("export-btn");
   const importInput = document.getElementById("import-input");
   const dataStatus = document.getElementById("data-settings-status");
+
+  FONT_OPTIONS.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.label;
+    fontSelect.appendChild(opt);
+  });
+
+  // Fallback swatch colors shown in the color pickers when the user hasn't
+  // overridden that slot yet — matches the app's current default light-mode
+  // tokens, just so the picker doesn't open on black.
+  const THEME_DEFAULTS = { text: "#16171a", panel: "#f8f8f9", bg: "#eaebec" };
+
+  function loadAppearanceFields() {
+    const s = store.getSettings();
+    fontSelect.value = s.font || "default";
+    const theme = s.theme || {};
+    themeText.value = theme.text || THEME_DEFAULTS.text;
+    themePanel.value = theme.panel || THEME_DEFAULTS.panel;
+    themeBg.value = theme.bg || THEME_DEFAULTS.bg;
+  }
+
+  function applyAndSaveTheme(patch) {
+    const s = store.getSettings();
+    const nextTheme = Object.assign({}, s.theme || {}, patch);
+    const updated = store.setSettings({ theme: nextTheme });
+    applyTheme(updated);
+  }
+
+  fontSelect.addEventListener("change", () => {
+    const updated = store.setSettings({ font: fontSelect.value });
+    applyTheme(updated);
+  });
+  themeText.addEventListener("input", () => applyAndSaveTheme({ text: themeText.value }));
+  themePanel.addEventListener("input", () => applyAndSaveTheme({ panel: themePanel.value }));
+  themeBg.addEventListener("input", () => applyAndSaveTheme({ bg: themeBg.value }));
+  themeResetBtn.addEventListener("click", () => {
+    const updated = store.setSettings({ font: "default", theme: {} });
+    applyTheme(updated);
+    loadAppearanceFields();
+  });
 
   function syncProviderFields() {
     const val = providerSelect.value;
@@ -92,6 +140,7 @@ export function initSettings(store, ai, onAiChange) {
     keyInput.value = s.apiKey || "";
     modelInput.value = s.model || "";
     syncProviderFields();
+    loadAppearanceFields();
     aiStatus.textContent = "";
     aiStatus.className = "settings-status";
     dataStatus.textContent = "";

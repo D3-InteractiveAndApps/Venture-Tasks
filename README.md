@@ -1,18 +1,23 @@
 # Venture Tasks
 
-A to-do list for someone running several small businesses or projects at once — organized into sections per venture, with drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats, and an optional AI co-pilot you connect yourself.
+A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats, a grocery-list page type, undo, a font/color-customizable appearance, and an optional AI co-pilot you connect yourself.
 
 It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
 
 ## Features
 
-- Sections per venture/business, freely added, renamed, color-coded, collapsed, and reordered by drag-and-drop.
-- Tasks within a section: add, check off, color-code, and drag between sections.
-- Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline.
-- A small health strip per section (open tasks, overdue count, days since last activity).
-- An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes all your ventures.
-- Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same task list. Works fully without this too, storing data on-device only.
-- Export/Import as JSON, for backing up or moving to another browser or computer by hand.
+- **Pages**, switched via tabs across the top — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** tab; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
+- Two page types, chosen when you add a page: a regular **to-do list**, or a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI) organized into categories you name yourself (Produce, Dairy, Hardware, whatever fits), with a category picker right on each item so you can reassign it anytime.
+- Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered by drag-and-drop.
+- Tasks within a section: add, check off, color-code, drag between sections, and now also **drag to reorder within the same section** — drop above or below any task to place it exactly there.
+- Checking off a task on a to-do page gets a small "nice work" animation (not shown on grocery lists, where checking items off is just... checking items off).
+- **Undo** — Ctrl+Z (Cmd+Z on Mac) undoes your last change: adding/deleting/checking a task, renaming a section, reordering, etc. It stays out of the way while you're typing in a text field, so normal text-undo still works there.
+- **Appearance**, in Settings: pick from several fonts (including a couple of serif/mono options), and optionally override the text, window, and background colors used throughout the app — similar in spirit to the color coding already available per section. "Reset colors" reverts to the defaults.
+- Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline (to-do pages only).
+- A small health strip per section (open tasks, overdue count, days since last activity) on to-do pages.
+- An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
+- Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same pages/sections/tasks. Works fully without this too, storing data on-device only.
+- Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
 
 ## Running it locally
 
@@ -30,7 +35,7 @@ This is a real, if small, inconvenience compared to true double-click — it was
 
 ## Hosting it for free — GitHub Pages
 
-1. Create a new GitHub repository and push this folder's contents to it (the whole folder, including `index.html`, `css/`, `js/`, `package.json`).
+1. Create a new GitHub repository and upload every file from this folder into it — they're all meant to sit directly in the repo root, with no subfolders (see "Project structure" below for why).
 2. In the repo, go to **Settings → Pages**.
 3. Under **Build and deployment**, set **Source** to "Deploy from a branch", pick your main branch and the `/ (root)` folder, then save.
 4. GitHub will give you a URL like `https://<your-username>.github.io/<repo-name>/`. That's the live app — share that link with anyone.
@@ -100,7 +105,7 @@ This is the one feature that needs something outside the browser — a place to 
 
 3. **Turn off "Confirm email" if you want signups to work immediately** (optional). By default Supabase sends a confirmation email before a new account can log in. For a quick personal/small-scale setup without email sending configured, go to **Authentication → Providers → Email** and turn off "Confirm email." For a real public launch, you'd instead want to configure a proper email sender there.
 4. **Get your API credentials.** Go to **Project Settings → API**. Copy the **Project URL** and the **anon public** key.
-5. **Paste them into the app.** Open `js/supabase-config.js` and replace the two placeholder strings:
+5. **Paste them into the app.** Open `supabase-config.js` and replace the two placeholder strings:
 
    ```js
    export const SUPABASE_URL = "https://xxxxxxxxxxxx.supabase.co";
@@ -116,23 +121,27 @@ A few honest limitations of this v1 sync, worth knowing:
 - **No password-reset flow is wired up yet.** Supabase supports it, but this app doesn't have a "forgot password" UI — that'd be a follow-up if you want it.
 - Signing out stops syncing but doesn't erase the local copy in that browser, so the app keeps working offline with whatever was last synced.
 
-If you'd rather use Firebase instead of Supabase, the same idea applies (auth + a cloud document per user) — `js/sync.js` is the one file that would need rewriting to call Firebase's SDK instead; nothing else in the app depends on which backend you pick.
+If you'd rather use Firebase instead of Supabase, the same idea applies (auth + a cloud document per user) — `sync.js` is the one file that would need rewriting to call Firebase's SDK instead; nothing else in the app depends on which backend you pick.
 
 ## Project structure
 
 ```
-index.html             Markup + the settings modal — loads js/app.js as an ES module
-css/styles.css          All styling (light/dark via prefers-color-scheme)
-js/store.js             localStorage data layer (sections, tasks, settings, export/import, replaceState)
-js/dates.js             Date/due-date/recurrence helper functions
-js/ai.js                Provider-agnostic AI dispatcher
-js/providers/*.js        One file per AI provider (Claude, OpenAI, Gemini) — direct REST calls
-js/supabase-config.js   Your Supabase project URL + anon key (placeholders until you set it up)
-js/sync.js              Optional account/cloud-sync logic (auth, push/pull, realtime) — no-ops until configured
-js/ui.js                Rendering, drag-and-drop, AI action wiring
-js/settings.js          Settings modal logic (AI connection, account/sync, export/import)
-js/app.js               Entry point — wires everything together
+index.html             Markup + the settings modal — loads app.js as an ES module
+styles.css              All styling (light/dark via prefers-color-scheme, plus font/color overrides)
+store.js                localStorage data layer (pages, sections, tasks, settings, undo, export/import, replaceState)
+dates.js                Date/due-date/recurrence helper functions
+ai.js                   Provider-agnostic AI dispatcher
+claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
+supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
+sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) — no-ops until configured
+ui.js                   Rendering (tabs, sections, tasks/grocery items), drag-and-drop, AI action wiring
+settings.js             Settings modal logic (AI connection, account/sync, appearance, export/import)
+theme.js                Font options list + applying the font/color overrides to the page
+undo.js                 Global Ctrl+Z / Cmd+Z handler
+app.js                  Entry point — wires everything together
 ```
+
+Everything sits directly in this one folder on purpose, with no subfolders — GitHub's drag-and-drop uploader doesn't reliably preserve nested folders, and a 404'd `css/` or `js/` path is the single most common way this kind of app silently breaks when hosted. One flat folder means there's nothing to get wrong when uploading or re-uploading files.
 
 ## Browser support
 
