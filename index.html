@@ -37,9 +37,18 @@
   <div class="toolbar">
     <p class="summary" id="summary">Loading&hellip;</p>
     <div class="toolbar-actions">
+      <button id="today-btn" type="button" class="review-btn" title="Everything overdue or due today, across every page">&#128197; Today</button>
       <button id="voice-btn" type="button" class="review-btn voice-btn" title="Voice commands: &quot;add milk to produce&quot;, &quot;check off bananas&quot;, &quot;uncheck bananas&quot;">&#127908; Voice</button>
       <button id="review-btn" type="button" class="review-btn" hidden>Weekly review</button>
     </div>
+  </div>
+
+  <div class="review-panel" id="today-panel" hidden>
+    <div class="review-head">
+      <span class="review-title">Today across your ventures</span>
+      <button id="today-close" type="button" class="del-btn" aria-label="Close Today view">&times;</button>
+    </div>
+    <div class="today-body" id="today-body"></div>
   </div>
 
   <div class="review-panel" id="review-panel" hidden>
@@ -187,6 +196,10 @@
             Import JSON
             <input id="import-input" type="file" accept="application/json" hidden />
           </label>
+        </div>
+        <p class="settings-help">Export your due dates as a calendar file to see them alongside everything else on your phone or desktop calendar. It's a one-time snapshot, not a live feed &mdash; re-export whenever you want it to catch up.</p>
+        <div class="settings-actions">
+          <button id="ics-export-btn" type="button" class="secondary-btn">Export calendar (.ics)</button>
         </div>
         <p class="settings-help" id="data-settings-status"></p>
       </section>

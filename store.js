@@ -7,7 +7,8 @@
 //   state.pages    — top-level tabs: { id, name, type: "tasks"|"grocery", order, createdAt }
 //   state.sections — belong to a page: { id, pageId, name, order, color, createdAt }
 //   state.tasks    — belong to a section: { id, pageId, sectionId, text, done, order,
-//                     color, dueDate, recurrence, isSomeday, createdAt, updatedAt, completedAt }
+//                     color, dueDate, recurrence, isSomeday, client, value,
+//                     createdAt, updatedAt, completedAt }
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
@@ -288,6 +289,8 @@ export const store = {
       dueDate: null,
       recurrence: null,
       isSomeday: false,
+      client: null,
+      value: null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
       completedAt: null
@@ -333,6 +336,8 @@ export const store = {
         dueDate: advanceDate(t.dueDate, t.recurrence),
         recurrence: t.recurrence,
         isSomeday: !!t.isSomeday,
+        client: t.client || null,
+        value: t.value || null,
         createdAt: nowIso(),
         updatedAt: nowIso(),
         completedAt: null

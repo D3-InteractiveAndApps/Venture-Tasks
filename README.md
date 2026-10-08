@@ -1,12 +1,13 @@
 # Venture Tasks
 
-A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
+A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
 
 It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
 
 ## Features
 
 - **Pages**, switched via tabs across the top — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** tab; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
+- **Today view** — tap the **Today** button (it shows a count badge when there's anything to see) for everything overdue or due today, pulled from *every* page at once, not just whichever one you're currently looking at. Check something off right there, or tap its page/section tag to jump straight to it. See "Using the Today view" below.
 - Two page types, chosen when you add a page: a regular **to-do list**, or a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime.
 - Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered — by drag-and-drop on desktop, or with a pair of up/down buttons on touch devices (drag-and-drop isn't something touchscreens support natively).
 - Tasks within a section: add, check off, color-code, drag between sections, and **reorder within the same section** — by drag-and-drop on desktop, or the same up/down buttons on touch.
@@ -16,7 +17,9 @@ It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step,
 - **Mobile-friendly** — usable on a phone or tablet, not just a desktop browser: touch-sized tap targets throughout, no unwanted zoom-in when you tap a text field (a common iOS Safari quirk), and the touch reordering buttons mentioned above in place of drag-and-drop.
 - **Appearance**, in Settings (now reachable from the button at the bottom of the page): pick from several fonts (including a couple of serif/mono options), and optionally override the text, window, and background colors used throughout the app — similar in spirit to the color coding already available per section. "Reset colors" reverts to the defaults.
 - Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline (to-do pages only).
-- A small health strip per section (open tasks, overdue count, days since last activity) on to-do pages.
+- **Client and value tags**, in a task's details panel (to-do pages only) — put a client name and a dollar amount on a task (an invoice, a deliverable, anything billable) and both show up as small badges right on the row.
+- A small health strip per section (open tasks, overdue count, days since last activity, and now total open client value when any tagged tasks are still unchecked) on to-do pages.
+- **Calendar export** — in Settings → Your data, export a `.ics` file of every open task's due date, importable into Apple Calendar, Google Calendar, or Outlook. See "Exporting to a calendar app" below for how it works and its one real limitation.
 - An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
 - Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same pages/sections/tasks. Works fully without this too, storing data on-device only.
 - Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
@@ -70,6 +73,14 @@ Supported providers and where to get a key:
 
 Model names drift over time, so the Settings panel lets you type the exact model ID you want rather than hardcoding one that might go stale (a current example is pre-filled as a placeholder).
 
+## Using the Today view
+
+The **Today** button (top toolbar) opens a panel showing everything overdue or due today, grouped that way, pulled from every to-do page at once — not just the one you happen to be looking at. It's built for exactly the situation this app exists for: running several ventures means the thing that's actually urgent today could be sitting on any one of them, and flipping through tabs one at a time to find out defeats the point.
+
+Each row shows the task, its due-status badge, its client/value tags if it has any, and a small pill with the page and section it belongs to — tap that pill to jump straight there (the panel closes automatically). Checking the box right there marks it done, same as checking it off anywhere else, and it disappears from the list immediately. The button itself carries a small count badge whenever there's anything overdue or due today, so you can tell at a glance without even opening it.
+
+A couple of deliberate scope choices: it only looks at to-do pages (grocery items don't have due dates, so there's nothing for it to show there), and it only surfaces *overdue* and *due today* — not "due this week" — on the theory that a Today view that also shows next Tuesday stops being about today. Someday tasks are left out too, same reasoning.
+
 ## Using voice commands
 
 Tap the **🎤 Voice** button (top toolbar, next to the item count), say your command, and the app acts on it immediately — no need to hold the button down or say a wake word, it listens for one phrase and stops.
@@ -83,6 +94,18 @@ What it understands, on whichever page is currently open:
 It doesn't need an exact match — "check off the proof" will find a task called "Send proof to client," and filler words like "the," "a," and "please" are ignored. If it can't find a matching item, doesn't understand the phrase, or isn't sure which section you meant, it says so in the status line rather than guessing and doing the wrong thing.
 
 This runs entirely in your browser, using the same built-in speech recognition Chrome/Edge/Safari already have for dictation — nothing is sent to any server of ours, no API key or account needed. **Firefox doesn't implement this browser feature**, so the Voice button there will explain that and nothing else; everything else in the app is unaffected. The first time you use it, your browser will ask for microphone permission, same as any site that uses voice input.
+
+## Tracking client work
+
+Open a task's details (the **⋯** button) and you'll find **Client** and **Value** fields alongside due date and recurrence. Neither is required — they're there for when a task is billable work and it's useful to see that at a glance. Set either one and it shows up as a small badge right on the row (a client name, a dollar amount, or both), in the Today view, and rolled up per section: the health strip adds up the value of every still-open tagged task in that section and shows it as "$X open" — a quick read on how much unbilled or unfinished work is sitting in one place. A recurring task carries its client/value tags forward to each new occurrence, same as its color does.
+
+This is intentionally simple — a tag and a number, not invoicing or time tracking — but it's enough to answer "how much open client work do I actually have right now" without leaving the task list.
+
+## Exporting to a calendar app
+
+Settings → Your data → **Export calendar (.ics)** downloads every open to-do-page task's due date as a standard `.ics` file, with the task text as the event title and its page, section, client, and value (whatever's set) in the event description. Double-click the file, or import it, to add those due dates to Apple Calendar, Google Calendar, Outlook, or anything else that reads the iCalendar format.
+
+The one real limitation, worth being upfront about: this is a **snapshot**, not a live feed. A static site has nowhere to host the kind of always-on `webcal://` subscription URL that updates itself automatically — that needs a server watching for changes and serving requests, which is exactly the backend this app deliberately doesn't have. So it's a re-export-when-you-want-it-to-catch-up tool, not a set-it-and-forget-it sync. For most people checking in every so often, that's a fair trade for staying a backend-free static site; if you outgrow it, the honest fix is standing up a small server endpoint that generates the `.ics` on the fly per account, which is a bigger change than this round of work.
 
 ## Syncing across devices
 
@@ -152,8 +175,9 @@ ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
 sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items), drag-and-drop, touch reordering, AI action wiring
+ui.js                   Rendering (tabs, sections, tasks/grocery items), the cross-page Today view, drag-and-drop, touch reordering, AI action wiring
 voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
+ics.js                  Builds the .ics calendar export from current due dates
 settings.js             Settings modal logic (AI connection, account/sync, appearance, export/import)
 theme.js                Font options list + applying the font/color overrides to the page
 undo.js                 Global Ctrl+Z / Cmd+Z handler

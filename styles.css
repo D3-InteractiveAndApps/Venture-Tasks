@@ -140,6 +140,29 @@ main { width: 100%; max-width: 680px; }
 .review-title { font-family: var(--font-heading); font-weight: 700; font-size: 14px; flex: 1; }
 .review-body { padding: 14px 16px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: var(--text); }
 
+.today-btn-count {
+  display: inline-grid; place-content: center; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 5px;
+  font-size: 10px; font-weight: 700; line-height: 1; color: var(--accent-ink); background: var(--accent);
+  border-radius: 999px; vertical-align: 1px;
+}
+.today-body { padding: 4px 0 10px; }
+.today-empty { padding: 20px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+.today-group-title {
+  padding: 10px 16px 4px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+}
+.today-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 16px;
+  border-top: 1px solid var(--border);
+}
+.today-group-title + .today-row { border-top: none; }
+.today-row-text { flex: 1 1 140px; min-width: 0; font-size: 14px; }
+.today-page-tag {
+  flex-shrink: 0; font: inherit; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+.today-page-tag:hover { color: var(--accent); border-color: var(--accent); }
+
 .sections { display: flex; flex-direction: column; gap: 16px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 
@@ -290,6 +313,13 @@ li.row-wrap.done .row-text {
 .due-badge.due-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
 .recur-badge { flex-shrink: 0; margin-top: 3px; font-size: 12px; color: var(--muted); }
 
+.client-badge, .value-badge {
+  flex-shrink: 0; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px;
+  letter-spacing: 0.02em; padding: 3px 7px; border-radius: 5px; white-space: nowrap; margin-top: 2px;
+}
+.client-badge { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.value-badge { background: var(--done-bg); color: var(--done); border: 1px solid transparent; }
+
 .details-toggle {
   flex-shrink: 0; width: 22px; height: 22px; display: grid; place-content: center; border: none;
   background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; font-size: 13px;
@@ -316,10 +346,12 @@ li.row-wrap.done .row-text {
   font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px; letter-spacing: 0.05em;
   text-transform: uppercase; color: var(--muted);
 }
-.detail-field input[type="date"], .detail-field select {
+.detail-field input[type="date"], .detail-field input[type="text"], .detail-field input[type="number"], .detail-field select {
   font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2);
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
 }
+.detail-field input[type="text"] { width: 140px; }
+.detail-field input[type="number"] { width: 90px; }
 .someday-field { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
 .someday-field input { cursor: pointer; }
 
@@ -432,7 +464,7 @@ li.row-wrap.done .row-text {
    magnet with a finger. */
 @media (max-width: 600px) {
   input[type="text"], input[type="email"], input[type="password"],
-  input[type="date"], input[type="search"], select, textarea {
+  input[type="date"], input[type="search"], input[type="number"], select, textarea {
     /* !important: several more-specific desktop rules (form.add-task
        input[type="text"], .field input, etc.) set font-size: 14px, and this
        has to win over every one of them without hunting down and re-

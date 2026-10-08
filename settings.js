@@ -4,6 +4,7 @@
 import { todayStr } from "./dates.js";
 import * as sync from "./sync.js";
 import { FONT_OPTIONS, applyTheme } from "./theme.js";
+import { buildIcsCalendar } from "./ics.js";
 
 export function initSettings(store, ai, onAiChange) {
   const overlay = document.getElementById("settings-overlay");
@@ -39,6 +40,7 @@ export function initSettings(store, ai, onAiChange) {
   const themeResetBtn = document.getElementById("theme-reset-btn");
 
   const exportBtn = document.getElementById("export-btn");
+  const icsExportBtn = document.getElementById("ics-export-btn");
   const importInput = document.getElementById("import-input");
   const dataStatus = document.getElementById("data-settings-status");
 
@@ -246,6 +248,21 @@ export function initSettings(store, ai, onAiChange) {
     a.remove();
     URL.revokeObjectURL(url);
     dataStatus.textContent = "Exported. Save that file somewhere you'll find it, or import it on another browser/computer.";
+  });
+
+  icsExportBtn.addEventListener("click", () => {
+    const state = store.getState();
+    const ics = buildIcsCalendar(state.pages, state.sections, state.tasks);
+    const blob = new Blob([ics], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "venture-tasks-due-dates-" + todayStr() + ".ics";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    dataStatus.textContent = "Exported. Import this file into Apple Calendar, Google Calendar, or Outlook to see your due dates there — it's a snapshot, so re-export whenever you want it to catch up.";
   });
 
   importInput.addEventListener("change", () => {

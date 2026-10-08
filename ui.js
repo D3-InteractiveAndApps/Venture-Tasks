@@ -50,6 +50,15 @@ function setStoredActivePage(id) {
   try { window.localStorage.setItem(LS_ACTIVE_PAGE, id); } catch (e) { /* non-fatal */ }
 }
 
+// "$450" for a whole dollar amount, "$450.50" for cents, with thousand
+// separators — null/0/unset all render as nothing (no badge, no stat).
+function formatMoney(n) {
+  if (n === null || n === undefined || n === "") return null;
+  const num = Number(n);
+  if (!isFinite(num) || num <= 0) return null;
+  return "$" + num.toLocaleString(undefined, { minimumFractionDigits: Number.isInteger(num) ? 0 : 2, maximumFractionDigits: 2 });
+}
+
 export function initUI(store, ai) {
   const tabsEl = document.getElementById("tabs");
   const pageTitleInput = document.getElementById("page-title");
@@ -72,6 +81,10 @@ export function initUI(store, ai) {
   const reviewCloseBtn = document.getElementById("review-close");
   const settingsBtn = document.getElementById("settings-btn");
   const voiceBtn = document.getElementById("voice-btn");
+  const todayBtn = document.getElementById("today-btn");
+  const todayPanel = document.getElementById("today-panel");
+  const todayBody = document.getElementById("today-body");
+  const todayCloseBtn = document.getElementById("today-close");
 
   const openDetailsIds = {};
   let reviewCtl = null;
@@ -272,6 +285,137 @@ export function initUI(store, ai) {
     setTimeout(cleanup, 1300); // fallback in case animationend never fires
   }
 
+  // Shown on a task row (and in the Today panel) when a client name and/or
+  // dollar value have been set on it — see buildTaskDetailsPanel. Grocery
+  // items never get these, same as due dates/recurrence.
+  function appendClientValueBadges(row, task) {
+    if (task.client) {
+      const clientBadge = document.createElement("span");
+      clientBadge.className = "client-badge";
+      clientBadge.textContent = "👤 " + task.client;
+      row.appendChild(clientBadge);
+    }
+    const money = formatMoney(task.value);
+    if (money) {
+      const valueBadge = document.createElement("span");
+      valueBadge.className = "value-badge";
+      valueBadge.textContent = money;
+      row.appendChild(valueBadge);
+    }
+  }
+
+  // --- Today view: everything overdue or due today, across every to-do
+  // page (not just whichever one happens to be active). Kept entirely
+  // separate from the AI weekly review — no AI connection needed, always
+  // available — and recomputed on every render so checking something off
+  // from in here (or anywhere else) is reflected immediately.
+  function computeTodayItems(state) {
+    const pageById = {};
+    state.pages.forEach((p) => { pageById[p.id] = p; });
+    const sectionById = {};
+    state.sections.forEach((s) => { sectionById[s.id] = s; });
+
+    const overdue = [];
+    const dueToday = [];
+    state.tasks.forEach((t) => {
+      if (t.done || !t.dueDate) return;
+      const page = pageById[t.pageId];
+      if (!page || page.type === "grocery") return;
+      const diff = daysUntil(t.dueDate);
+      if (diff === null) return;
+      const entry = { task: t, page: page, section: sectionById[t.sectionId] || null, diff: diff };
+      if (diff < 0) overdue.push(entry);
+      else if (diff === 0) dueToday.push(entry);
+    });
+    overdue.sort((a, b) => a.diff - b.diff); // most overdue first
+    dueToday.sort((a, b) => (a.page.name || "").localeCompare(b.page.name || ""));
+    return { overdue: overdue, dueToday: dueToday };
+  }
+
+  function buildTodayRow(entry) {
+    const task = entry.task, page = entry.page, section = entry.section;
+    const row = document.createElement("div");
+    row.className = "today-row";
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "check";
+    check.setAttribute("aria-label", "Mark \"" + task.text + "\" as done");
+    check.addEventListener("change", () => store.toggleTaskDone(task.id));
+    row.appendChild(check);
+
+    const text = document.createElement("span");
+    text.className = "today-row-text";
+    text.textContent = task.text || "";
+    row.appendChild(text);
+
+    const due = dueBadgeInfo(task.dueDate);
+    if (due) {
+      const dueBadge = document.createElement("span");
+      dueBadge.className = "due-badge" + (due.cls ? " " + due.cls : "");
+      dueBadge.textContent = due.text;
+      row.appendChild(dueBadge);
+    }
+    appendClientValueBadges(row, task);
+
+    const pageTag = document.createElement("button");
+    pageTag.type = "button";
+    pageTag.className = "today-page-tag";
+    pageTag.textContent = (page.name || "Untitled") + (section ? " · " + (section.name || "Untitled") : "");
+    pageTag.title = "Jump to " + (page.name || "Untitled");
+    pageTag.addEventListener("click", () => {
+      activePageId = page.id;
+      setStoredActivePage(page.id);
+      todayPanel.hidden = true;
+      render(store.getState());
+    });
+    row.appendChild(pageTag);
+
+    todayBody.appendChild(row);
+  }
+
+  function renderTodayPanel(state) {
+    const items = computeTodayItems(state);
+    const total = items.overdue.length + items.dueToday.length;
+
+    // The count badge on the button itself stays current whether or not the
+    // panel is open, so it's useful at a glance without opening anything.
+    let countEl = todayBtn.querySelector(".today-btn-count");
+    if (total > 0) {
+      if (!countEl) {
+        countEl = document.createElement("span");
+        countEl.className = "today-btn-count";
+        todayBtn.appendChild(countEl);
+      }
+      countEl.textContent = String(total);
+    } else if (countEl) {
+      countEl.remove();
+    }
+
+    if (todayPanel.hidden) return; // no need to build the body while closed
+
+    todayBody.innerHTML = "";
+    if (total === 0) {
+      const empty = document.createElement("div");
+      empty.className = "today-empty";
+      empty.textContent = "Nothing overdue or due today across any of your pages.";
+      todayBody.appendChild(empty);
+      return;
+    }
+
+    function buildGroup(title, entries) {
+      if (!entries.length) return;
+      const groupTitle = document.createElement("div");
+      groupTitle.className = "today-group-title";
+      groupTitle.textContent = title + " (" + entries.length + ")";
+      todayBody.appendChild(groupTitle);
+      entries.forEach(buildTodayRow);
+    }
+
+    buildGroup("Overdue", items.overdue);
+    buildGroup("Due today", items.dueToday);
+  }
+
   function buildTaskRow(task, sectionId, sectionName, otherSections, isGrocery, siblingList, idx) {
     const beforeTaskIdForDrop = siblingList[idx + 1] ? siblingList[idx + 1].id : null;
     const wrap = document.createElement("li");
@@ -381,6 +525,7 @@ export function initUI(store, ai) {
         recurBadge.textContent = "↻";
         row.appendChild(recurBadge);
       }
+      appendClientValueBadges(row, task);
     } else if (otherSections.length) {
       // Grocery items are stripped down to name / category / checkbox /
       // color, but reassigning the category stays available right on the
@@ -508,6 +653,49 @@ export function initUI(store, ai) {
 
     panel.appendChild(controls);
 
+    // A second row, kept separate from due/repeat/someday/move above so it
+    // doesn't get too crowded — client + dollar value, both optional, for
+    // tying a task to freelance/client work. Neither applies to grocery
+    // items (this whole panel isn't built for those — see buildTaskRow).
+    const clientValueRow = document.createElement("div");
+    clientValueRow.className = "detail-row";
+
+    const clientField = document.createElement("div");
+    clientField.className = "detail-field";
+    const clientLabel = document.createElement("span");
+    clientLabel.className = "detail-label";
+    clientLabel.textContent = "Client";
+    const clientInput = document.createElement("input");
+    clientInput.type = "text";
+    clientInput.placeholder = "Client name";
+    clientInput.maxLength = 60;
+    clientInput.value = task.client || "";
+    clientInput.addEventListener("change", () => store.updateTask(task.id, { client: clientInput.value.trim() || null }));
+    clientField.appendChild(clientLabel);
+    clientField.appendChild(clientInput);
+
+    const valueField = document.createElement("div");
+    valueField.className = "detail-field";
+    const valueLabel = document.createElement("span");
+    valueLabel.className = "detail-label";
+    valueLabel.textContent = "Value";
+    const valueInput = document.createElement("input");
+    valueInput.type = "number";
+    valueInput.min = "0";
+    valueInput.step = "0.01";
+    valueInput.placeholder = "0.00";
+    valueInput.value = task.value != null ? task.value : "";
+    valueInput.addEventListener("change", () => {
+      const v = parseFloat(valueInput.value);
+      store.updateTask(task.id, { value: isFinite(v) && v > 0 ? v : null });
+    });
+    valueField.appendChild(valueLabel);
+    valueField.appendChild(valueInput);
+
+    clientValueRow.appendChild(clientField);
+    clientValueRow.appendChild(valueField);
+    panel.appendChild(clientValueRow);
+
     if (ai.isConfigured()) {
       const aiRow = document.createElement("div");
       aiRow.className = "ai-actions";
@@ -602,7 +790,8 @@ export function initUI(store, ai) {
     });
     const doneWeek = sectionTasks.filter((t) => t.done && t.completedAt && daysSince(t.completedAt) <= 7).length;
     const stalled = sectionTasks.filter((t) => !t.done && !t.isSomeday && t.updatedAt && daysSince(t.updatedAt) >= STALE_DAYS).length;
-    return { active: activityText(daysSince(lastTs)), doneWeek, stalled };
+    const openValue = sectionTasks.reduce((sum, t) => sum + (!t.done && t.value ? Number(t.value) : 0), 0);
+    return { active: activityText(daysSince(lastTs)), doneWeek, stalled, openValue };
   }
 
   function activePage(state) {
@@ -781,6 +970,10 @@ export function initUI(store, ai) {
           healthEl.className = "health-strip";
           healthEl.hidden = collapsed;
           healthEl.appendChild(document.createTextNode("Active " + health.active + " · Done this wk " + health.doneWeek));
+          const openValueText = formatMoney(health.openValue);
+          if (openValueText) {
+            healthEl.appendChild(document.createTextNode(" · " + openValueText + " open"));
+          }
           if (health.stalled > 0) {
             healthEl.appendChild(document.createTextNode(" · "));
             const stalledSpan = document.createElement("span");
@@ -897,6 +1090,10 @@ export function initUI(store, ai) {
       : isGrocery
         ? totalOpen + " of " + totalAll + " left to get across " + sections.length + " categor" + (sections.length === 1 ? "y" : "ies")
         : totalOpen + " of " + totalAll + " open across " + sections.length + " section" + (sections.length === 1 ? "" : "s");
+
+    // Cross-page, so it's recomputed from the whole store on every render —
+    // not scoped to whichever page/section loop just ran above.
+    renderTodayPanel(state);
   }
 
   store.subscribe(render);
@@ -973,6 +1170,12 @@ export function initUI(store, ai) {
   });
 
   voiceBtn.addEventListener("click", startVoiceCommand);
+
+  todayBtn.addEventListener("click", () => {
+    todayPanel.hidden = !todayPanel.hidden;
+    if (!todayPanel.hidden) renderTodayPanel(store.getState());
+  });
+  todayCloseBtn.addEventListener("click", () => { todayPanel.hidden = true; });
 
   reviewBtn.addEventListener("click", runWeeklyReview);
   reviewStopBtn.addEventListener("click", () => { if (reviewCtl) reviewCtl.abort(); });
