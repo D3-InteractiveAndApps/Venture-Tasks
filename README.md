@@ -1,18 +1,20 @@
 # Venture Tasks
 
-A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats, a grocery-list page type, undo, a font/color-customizable appearance, and an optional AI co-pilot you connect yourself.
+A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
 
 It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
 
 ## Features
 
 - **Pages**, switched via tabs across the top — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** tab; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
-- Two page types, chosen when you add a page: a regular **to-do list**, or a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI) organized into categories you name yourself (Produce, Dairy, Hardware, whatever fits), with a category picker right on each item so you can reassign it anytime.
-- Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered by drag-and-drop.
-- Tasks within a section: add, check off, color-code, drag between sections, and now also **drag to reorder within the same section** — drop above or below any task to place it exactly there.
+- Two page types, chosen when you add a page: a regular **to-do list**, or a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime.
+- Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered — by drag-and-drop on desktop, or with a pair of up/down buttons on touch devices (drag-and-drop isn't something touchscreens support natively).
+- Tasks within a section: add, check off, color-code, drag between sections, and **reorder within the same section** — by drag-and-drop on desktop, or the same up/down buttons on touch.
 - Checking off a task on a to-do page gets a small "nice work" animation (not shown on grocery lists, where checking items off is just... checking items off).
+- **Voice commands** — tap the Voice button and just say what you want: "add milk to produce," "check off bananas," "uncheck the report." See "Using voice commands" below for details, examples, and browser support.
 - **Undo** — Ctrl+Z (Cmd+Z on Mac) undoes your last change: adding/deleting/checking a task, renaming a section, reordering, etc. It stays out of the way while you're typing in a text field, so normal text-undo still works there.
-- **Appearance**, in Settings: pick from several fonts (including a couple of serif/mono options), and optionally override the text, window, and background colors used throughout the app — similar in spirit to the color coding already available per section. "Reset colors" reverts to the defaults.
+- **Mobile-friendly** — usable on a phone or tablet, not just a desktop browser: touch-sized tap targets throughout, no unwanted zoom-in when you tap a text field (a common iOS Safari quirk), and the touch reordering buttons mentioned above in place of drag-and-drop.
+- **Appearance**, in Settings (now reachable from the button at the bottom of the page): pick from several fonts (including a couple of serif/mono options), and optionally override the text, window, and background colors used throughout the app — similar in spirit to the color coding already available per section. "Reset colors" reverts to the defaults.
 - Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline (to-do pages only).
 - A small health strip per section (open tasks, overdue count, days since last activity) on to-do pages.
 - An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
@@ -68,6 +70,20 @@ Supported providers and where to get a key:
 
 Model names drift over time, so the Settings panel lets you type the exact model ID you want rather than hardcoding one that might go stale (a current example is pre-filled as a placeholder).
 
+## Using voice commands
+
+Tap the **🎤 Voice** button (top toolbar, next to the item count), say your command, and the app acts on it immediately — no need to hold the button down or say a wake word, it listens for one phrase and stops.
+
+What it understands, on whichever page is currently open:
+
+- **Adding an item** — "add milk to produce", "put bananas in produce", or just "add milk" if the page only has one section (if there's more than one, it'll ask which one you meant rather than guess).
+- **Checking something off** — "check off bananas", "check bananas", "complete invoice for client A", "mark bananas as done".
+- **Unchecking something** — "uncheck bananas", "unmark bananas", "mark bananas as not done".
+
+It doesn't need an exact match — "check off the proof" will find a task called "Send proof to client," and filler words like "the," "a," and "please" are ignored. If it can't find a matching item, doesn't understand the phrase, or isn't sure which section you meant, it says so in the status line rather than guessing and doing the wrong thing.
+
+This runs entirely in your browser, using the same built-in speech recognition Chrome/Edge/Safari already have for dictation — nothing is sent to any server of ours, no API key or account needed. **Firefox doesn't implement this browser feature**, so the Voice button there will explain that and nothing else; everything else in the app is unaffected. The first time you use it, your browser will ask for microphone permission, same as any site that uses voice input.
+
 ## Syncing across devices
 
 There are two ways to move data between browsers/computers, and you can use either one independently of the other.
@@ -114,6 +130,8 @@ This is the one feature that needs something outside the browser — a place to 
 
 6. Save the file, then reload the page if you're testing locally, or redeploy (push to GitHub / re-upload) if it's already hosted. That's it — the Settings modal now shows a working **Account & sync** section instead of the "not set up" message.
 
+**A note on a recent fix:** earlier versions could occasionally show a checkbox snap back to checked right after you unchecked it (or vice versa), when syncing was turned on — a race between your own change being saved and the app receiving its own change back over realtime and mistaking it for someone else's edit. That's been rewritten to compare against what the server actually confirms was saved, rather than guessing, and to not apply an incoming update while one of your own is still in flight. It's been checked carefully against the sync code's logic, but this environment couldn't connect to a live Supabase project to test it against the real thing — if you still see the checkbox-revert behavior after updating, let me know and I'll dig further.
+
 A few honest limitations of this v1 sync, worth knowing:
 
 - **Last write wins.** If you edit the same account from two devices while both are offline-ish or at the exact same moment, whichever save lands last overwrites the other — there's no merge of conflicting edits. For one person using their own account across a couple of their own computers (the normal case), this is rarely an issue in practice.
@@ -134,7 +152,8 @@ ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
 sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items), drag-and-drop, AI action wiring
+ui.js                   Rendering (tabs, sections, tasks/grocery items), drag-and-drop, touch reordering, AI action wiring
+voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
 settings.js             Settings modal logic (AI connection, account/sync, appearance, export/import)
 theme.js                Font options list + applying the font/color overrides to the page
 undo.js                 Global Ctrl+Z / Cmd+Z handler
@@ -145,4 +164,4 @@ Everything sits directly in this one folder on purpose, with no subfolders — G
 
 ## Browser support
 
-Any modern evergreen browser (Chrome, Edge, Firefox, Safari) released in the last few years. It uses standard ES modules, `localStorage`, native `<input type="color">` and `<input type="date">`, and the HTML5 drag-and-drop API — no polyfills, no framework, no dependencies to install for end users.
+Any modern evergreen browser (Chrome, Edge, Firefox, Safari) released in the last few years, on desktop or mobile. It uses standard ES modules, `localStorage`, native `<input type="color">` and `<input type="date">`, and the HTML5 drag-and-drop API (desktop only — touch devices get up/down buttons instead, see "Mobile-friendly" above) — no polyfills, no framework, no dependencies to install for end users. The one feature with uneven support is **voice commands**, which relies on the Web Speech API: it works in Chrome, Edge, and Safari, but Firefox hasn't implemented it — everything else in the app is unaffected there.

@@ -1,12 +1,13 @@
 // ui.js — renders the active page's tabs, sections and tasks from the
 // store, and wires every interaction (tabs, drag/drop reordering, collapse,
 // rename, color, due dates, recurrence, someday, the AI co-pilot, the
-// weekly review, and the completion celebration).
+// weekly review, voice commands, and the completion celebration).
 
 import {
   STALE_DAYS, daysUntil, daysSince, activityText,
   dueBadgeInfo, recurrenceValue, recurrenceFromValue
 } from "./dates.js";
+import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
 
 const LS_COLLAPSED_PREFIX = "ventureTasks:collapsed:";
 const LS_ACTIVE_PAGE = "ventureTasks:activePage";
@@ -70,9 +71,11 @@ export function initUI(store, ai) {
   const reviewStopBtn = document.getElementById("review-stop");
   const reviewCloseBtn = document.getElementById("review-close");
   const settingsBtn = document.getElementById("settings-btn");
+  const voiceBtn = document.getElementById("voice-btn");
 
   const openDetailsIds = {};
   let reviewCtl = null;
+  let activeRecognizer = null;
   let activePageId = getStoredActivePage();
   // Set right before a toggle that should celebrate, and consumed inside the
   // very next render pass (store.toggleTaskDone triggers that render
@@ -156,6 +159,107 @@ export function initUI(store, ai) {
     });
   }
 
+  function startVoiceCommand() {
+    if (activeRecognizer) return; // already listening — ignore a second click
+    voiceBtn.classList.add("listening");
+    voiceBtn.textContent = "🎙️ Listening…";
+    setStatus("Listening…");
+    activeRecognizer = listenOnce({
+      onResult: (transcript) => handleVoiceTranscript(transcript),
+      onError: (msg) => setStatus(msg, true),
+      onEnd: () => {
+        activeRecognizer = null;
+        voiceBtn.classList.remove("listening");
+        voiceBtn.textContent = "🎤 Voice";
+      }
+    });
+  }
+
+  function handleVoiceTranscript(transcript) {
+    const state = store.getState();
+    const page = activePage(state);
+    if (!page) return;
+    const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
+    const cmd = parseCommand(transcript);
+
+    if (cmd.type === "empty") {
+      setStatus("Didn't catch that — try again.", true);
+      return;
+    }
+    if (cmd.type === "unrecognized") {
+      setStatus("Didn't understand \"" + cmd.raw + "\" — try \"add milk to produce\" or \"check off bananas\".", true);
+      return;
+    }
+
+    const sections = state.sections.filter((s) => s.pageId === page.id);
+    const tasks = state.tasks.filter((t) => t.pageId === page.id);
+
+    if (cmd.type === "add") {
+      let targetSection = null;
+      if (cmd.section) {
+        const m = findBestMatch(sections, cmd.section, "name");
+        if (!m) { setStatus("Couldn't find a " + labels.noun + " called \"" + cmd.section + "\".", true); return; }
+        targetSection = m.item;
+      } else if (sections.length === 1) {
+        targetSection = sections[0];
+      } else if (sections.length === 0) {
+        setStatus("Add a " + labels.noun + " first, then try again.", true);
+        return;
+      } else {
+        setStatus("Which " + labels.noun + "? Try \"add " + cmd.text + " to <name>\".", true);
+        return;
+      }
+      store.addTask(targetSection.id, cmd.text);
+      setStatus("Added \"" + cmd.text + "\" to " + (targetSection.name || "Untitled") + ".");
+      return;
+    }
+
+    if (cmd.type === "check") {
+      const open = tasks.filter((t) => !t.done);
+      const m = findBestMatch(open, cmd.target, "text");
+      if (!m) { setStatus("Couldn't find an open item like \"" + cmd.target + "\" to check off.", true); return; }
+      pendingCelebrationId = page.type !== "grocery" ? m.item.id : null;
+      store.toggleTaskDone(m.item.id);
+      setStatus("Checked off \"" + m.item.text + "\".");
+      return;
+    }
+
+    if (cmd.type === "uncheck") {
+      const done = tasks.filter((t) => t.done);
+      const m = findBestMatch(done, cmd.target, "text");
+      if (!m) { setStatus("Couldn't find a checked-off item like \"" + cmd.target + "\" to uncheck.", true); return; }
+      store.toggleTaskDone(m.item.id);
+      setStatus("Unchecked \"" + m.item.text + "\".");
+      return;
+    }
+  }
+
+  // Touch devices can't drag-and-drop (see the move-btns CSS), so this pair
+  // of up/down buttons is the touch equivalent for reordering — same idea
+  // for both sections and tasks-within-a-section, just given a different
+  // pair of callbacks and labels by the two call sites below.
+  function buildMoveBtns(label, canUp, canDown, onUp, onDown) {
+    const wrap = document.createElement("span");
+    wrap.className = "move-btns";
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "move-btn";
+    up.textContent = "↑";
+    up.setAttribute("aria-label", "Move " + label + " up");
+    up.disabled = !canUp;
+    up.addEventListener("click", onUp);
+    const down = document.createElement("button");
+    down.type = "button";
+    down.className = "move-btn";
+    down.textContent = "↓";
+    down.setAttribute("aria-label", "Move " + label + " down");
+    down.disabled = !canDown;
+    down.addEventListener("click", onDown);
+    wrap.appendChild(up);
+    wrap.appendChild(down);
+    return wrap;
+  }
+
   function celebrate(wrap, checkEl) {
     const phrase = CELEBRATE_PHRASES[Math.floor(Math.random() * CELEBRATE_PHRASES.length)];
     const badge = document.createElement("span");
@@ -168,7 +272,8 @@ export function initUI(store, ai) {
     setTimeout(cleanup, 1300); // fallback in case animationend never fires
   }
 
-  function buildTaskRow(task, sectionId, sectionName, otherSections, isGrocery, beforeTaskIdForDrop) {
+  function buildTaskRow(task, sectionId, sectionName, otherSections, isGrocery, siblingList, idx) {
+    const beforeTaskIdForDrop = siblingList[idx + 1] ? siblingList[idx + 1].id : null;
     const wrap = document.createElement("li");
     wrap.className = "row-wrap" + (task.done ? " done" : "") + (!isGrocery && task.isSomeday ? " someday" : "");
     wrap.draggable = true;
@@ -216,6 +321,14 @@ export function initUI(store, ai) {
     handle.setAttribute("aria-hidden", "true");
     handle.textContent = "⋮⋮";
 
+    const moveBtns = buildMoveBtns(
+      "\"" + (task.text || "item") + "\"",
+      idx > 0,
+      idx < siblingList.length - 1,
+      () => store.reorderTaskInSection(task.id, sectionId, siblingList[idx - 1] ? siblingList[idx - 1].id : null),
+      () => store.reorderTaskInSection(task.id, sectionId, siblingList[idx + 2] ? siblingList[idx + 2].id : null)
+    );
+
     const colorInput = document.createElement("input");
     colorInput.type = "color";
     colorInput.className = "color-swatch small";
@@ -247,6 +360,7 @@ export function initUI(store, ai) {
     label.textContent = task.text || "";
 
     row.appendChild(handle);
+    row.appendChild(moveBtns);
     row.appendChild(check);
     row.appendChild(colorInput);
     row.appendChild(label);
@@ -561,7 +675,7 @@ export function initUI(store, ai) {
 
     let totalOpen = 0, totalAll = 0;
 
-    sections.forEach((s) => {
+    sections.forEach((s, sIdx) => {
       const sectionName = s.name || "Untitled";
       const sectionTasks = tasks.filter((t) => t.sectionId === s.id).slice().sort((a, b) => a.order - b.order);
       const open = sectionTasks.filter((t) => !t.done).length;
@@ -589,6 +703,24 @@ export function initUI(store, ai) {
       sectionHandle.className = "section-handle";
       sectionHandle.setAttribute("aria-hidden", "true");
       sectionHandle.textContent = "⠿";
+
+      const sectionMoveBtns = buildMoveBtns(
+        "\"" + sectionName + "\"",
+        sIdx > 0,
+        sIdx < sections.length - 1,
+        () => {
+          const ids = sections.map((x) => x.id);
+          ids.splice(sIdx, 1);
+          ids.splice(sIdx - 1, 0, s.id);
+          store.reorderSections(ids);
+        },
+        () => {
+          const ids = sections.map((x) => x.id);
+          ids.splice(sIdx, 1);
+          ids.splice(sIdx + 1, 0, s.id);
+          store.reorderSections(ids);
+        }
+      );
 
       const colorInput = document.createElement("input");
       colorInput.type = "color";
@@ -633,6 +765,7 @@ export function initUI(store, ai) {
       wireDeleteSection(delBtn, s.id, sectionTasks.length, labels);
 
       head.appendChild(sectionHandle);
+      head.appendChild(sectionMoveBtns);
       head.appendChild(collapseBtn);
       head.appendChild(colorInput);
       head.appendChild(name);
@@ -686,15 +819,13 @@ export function initUI(store, ai) {
         list.appendChild(et);
       } else if (isGrocery) {
         sectionTasks.forEach((t, i) => {
-          const beforeId = sectionTasks[i + 1] ? sectionTasks[i + 1].id : null;
-          list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, true, beforeId));
+          list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, true, sectionTasks, i));
         });
       } else {
         const activeTasks = sectionTasks.filter((t) => !t.isSomeday);
         const somedayTasks = sectionTasks.filter((t) => t.isSomeday);
         activeTasks.forEach((t, i) => {
-          const beforeId = activeTasks[i + 1] ? activeTasks[i + 1].id : (somedayTasks[0] ? somedayTasks[0].id : null);
-          list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, false, beforeId));
+          list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, false, activeTasks, i));
         });
         if (somedayTasks.length) {
           const divider = document.createElement("li");
@@ -702,8 +833,7 @@ export function initUI(store, ai) {
           divider.textContent = "Someday";
           list.appendChild(divider);
           somedayTasks.forEach((t, i) => {
-            const beforeId = somedayTasks[i + 1] ? somedayTasks[i + 1].id : null;
-            list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, false, beforeId));
+            list.appendChild(buildTaskRow(t, s.id, sectionName, otherSections, false, somedayTasks, i));
           });
         }
       }
@@ -841,6 +971,8 @@ export function initUI(store, ai) {
   newSectionInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addSectionBtn.click(); }
   });
+
+  voiceBtn.addEventListener("click", startVoiceCommand);
 
   reviewBtn.addEventListener("click", runWeeklyReview);
   reviewStopBtn.addEventListener("click", () => { if (reviewCtl) reviewCtl.abort(); });

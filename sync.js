@@ -32,6 +32,9 @@ let pushTimer = null;
 let lastPushedAt = null;
 let channel = null;
 let initPromise = null;
+let pushInFlight = false;
+let pushQueued = false;
+let pushScheduled = false; // true from schedulePush() until runPush() actually starts
 
 const statusListeners = new Set();
 let status = { configured: isSupabaseConfigured(), loggedIn: false, email: null, syncing: false, error: null };
@@ -84,7 +87,7 @@ async function pullOrSeedRemoteState() {
     } else {
       // First time this account has signed in anywhere — seed the
       // account's row with whatever is currently in this browser.
-      await pushNow(true);
+      await pushNow();
     }
     setStatus({ syncing: false });
   } catch (e) {
@@ -93,7 +96,7 @@ async function pullOrSeedRemoteState() {
   }
 }
 
-async function pushNow(isInitialSeed) {
+async function pushNow() {
   if (!client || !session || !currentStore) return;
   try {
     const payload = {
@@ -101,21 +104,50 @@ async function pushNow(isInitialSeed) {
       data: currentStore.getState(),
       updated_at: new Date().toISOString()
     };
-    const { error } = await client.from("app_state").upsert(payload, { onConflict: "user_id" });
+    // Ask Postgres to hand back the row it actually stored, and use ITS
+    // updated_at (not our client-generated guess) as the echo-detection
+    // marker below. Postgres can normalize a timestamptz's string
+    // representation (precision, offset format) when it's later broadcast
+    // over Realtime, so comparing against our own un-normalized string was
+    // silently never matching — meaning this device's own push would come
+    // back over Realtime looking like a genuine remote change, and get
+    // applied via replaceState(), reverting whatever the user had done
+    // locally in the meantime (e.g. checking a box, then quickly
+    // unchecking it before the echo arrived).
+    const { data: rows, error } = await client.from("app_state").upsert(payload, { onConflict: "user_id" }).select("updated_at");
     if (error) throw error;
-    lastPushedAt = payload.updated_at;
+    const serverUpdatedAt = rows && rows[0] && rows[0].updated_at;
+    lastPushedAt = serverUpdatedAt || payload.updated_at;
     setStatus({ syncing: false, error: null });
   } catch (e) {
     setStatus({ syncing: false, error: describeError(e) });
   }
-  if (isInitialSeed) return;
+}
+
+// Runs pushes one at a time, never two upserts to the same row in flight at
+// once. Without this, a slow earlier push can finish AFTER a faster later
+// one, so the stale (earlier) state "wins" at the database and lastPushedAt
+// ends up pointing at that stale write — the same revert symptom as above,
+// just from the opposite direction (an out-of-order write instead of a
+// misidentified echo).
+async function runPush() {
+  pushScheduled = false;
+  if (pushInFlight) { pushQueued = true; return; }
+  pushInFlight = true;
+  await pushNow();
+  pushInFlight = false;
+  if (pushQueued) {
+    pushQueued = false;
+    await runPush(); // whatever's newest in the store by now, not a stale snapshot
+  }
 }
 
 function schedulePush() {
   if (!session || applyingRemote) return;
   setStatus({ syncing: true });
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(pushNow, PUSH_DEBOUNCE_MS);
+  pushScheduled = true;
+  pushTimer = setTimeout(runPush, PUSH_DEBOUNCE_MS);
 }
 
 function subscribeRealtime() {
@@ -131,6 +163,22 @@ function subscribeRealtime() {
         if (!row || !row.data) return;
         // Ignore the echo of our own most recent push.
         if (row.updated_at === lastPushedAt) return;
+        // Belt-and-suspenders: even if the timestamp comparison above
+        // somehow doesn't match our own push (see the note in pushNow),
+        // an incoming row that's byte-identical to what's already on
+        // screen is never worth a replaceState — applying it is a no-op
+        // at best, and at worst it stomps a local change made in the
+        // instant between this message being sent and received.
+        try {
+          if (JSON.stringify(row.data) === JSON.stringify(currentStore.getState())) {
+            lastPushedAt = row.updated_at;
+            return;
+          }
+        } catch (e) { /* fall through and apply normally */ }
+        // A push for a newer local change is still pending or in flight —
+        // trust it over this (now-stale) incoming row; our own push will
+        // either overwrite this at the database shortly, or already has.
+        if (pushScheduled || pushInFlight || pushQueued) return;
         applyingRemote = true;
         currentStore.replaceState(row.data);
         applyingRemote = false;

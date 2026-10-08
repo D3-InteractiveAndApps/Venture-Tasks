@@ -20,6 +20,16 @@ const DEFAULT_PAGE_NAME = "Professional Tasks";
 
 const SECTION_PALETTE = ["#3d8bff", "#a855f7", "#e0b23d", "#e05f8a", "#2bb6a3", "#8a6d3b"];
 
+// Seeded into every new grocery-type page, matching the category sets most
+// grocery-list apps (AnyList, Out of Milk, Google Keep's shopping template)
+// ship by default. The user can rename, recolor, reorder, or delete any of
+// these the same way as a category they added themselves.
+const DEFAULT_GROCERY_CATEGORIES = [
+  "Produce", "Dairy & Eggs", "Meat & Seafood", "Bakery", "Frozen",
+  "Pantry", "Canned Goods", "Breakfast & Cereal", "Snacks", "Beverages",
+  "Condiments & Spices", "Household", "Personal Care"
+];
+
 function uid() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -160,14 +170,29 @@ export const store = {
   // --- pages ---
   addPage(name, type) {
     pushUndo();
+    const pageType = type === "grocery" ? "grocery" : "tasks";
     const page = {
       id: uid(),
       name: (name || "Untitled").trim() || "Untitled",
-      type: type === "grocery" ? "grocery" : "tasks",
+      type: pageType,
       order: state.pages.reduce((max, p) => Math.max(max, p.order || 0), 0) + 1,
       createdAt: nowIso()
     };
     state.pages.push(page);
+    if (pageType === "grocery") {
+      // One undo step for the whole page, default categories included —
+      // not one step per category.
+      DEFAULT_GROCERY_CATEGORIES.forEach((catName, i) => {
+        state.sections.push({
+          id: uid(),
+          pageId: page.id,
+          name: catName,
+          order: i + 1,
+          color: SECTION_PALETTE[i % SECTION_PALETTE.length],
+          createdAt: nowIso()
+        });
+      });
+    }
     persist();
     return page;
   },

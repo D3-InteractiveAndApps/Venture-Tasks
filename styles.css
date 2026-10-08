@@ -57,7 +57,8 @@ body {
 }
 main { width: 100%; max-width: 680px; }
 
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.page-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.bottom-bar { display: flex; justify-content: center; margin-top: 20px; }
 .page-head-text { flex: 1; min-width: 0; }
 .eyebrow {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -123,6 +124,17 @@ main { width: 100%; max-width: 680px; }
 .review-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .review-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-btn.listening {
+  border-color: var(--accent); color: var(--accent-ink); background: var(--accent);
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .voice-btn.listening { animation: none; } }
+
 .review-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
 .review-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
 .review-title { font-family: var(--font-heading); font-weight: 700; font-size: 14px; flex: 1; }
@@ -140,6 +152,19 @@ main { width: 100%; max-width: 680px; }
 .section-head.expanded { border-bottom: 1px solid var(--border); }
 .section-handle { flex-shrink: 0; color: var(--muted); font-size: 13px; letter-spacing: -1px; user-select: none; }
 @media (hover: none) and (pointer: coarse) { .section-handle { display: none; } }
+
+/* Drag-and-drop reordering doesn't work on touch, so touch devices get a
+   pair of up/down buttons instead — shown only there, since they'd just be
+   redundant clutter next to a working drag handle on desktop. */
+.move-btns { display: none; flex-shrink: 0; flex-direction: column; gap: 3px; }
+.move-btn {
+  width: 22px; height: 16px; display: grid; place-content: center; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 700;
+  border-radius: 4px; line-height: 1;
+}
+.move-btn:hover:not(:disabled) { color: var(--text); background: var(--bg); }
+.move-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+@media (hover: none) and (pointer: coarse) { .move-btns { display: flex; } }
 
 .color-swatch {
   -webkit-appearance: none; appearance: none; flex-shrink: 0; width: 20px; height: 20px; padding: 0;
@@ -397,5 +422,60 @@ li.row-wrap.done .row-text {
 
 @media (max-width: 420px) {
   .page-head { flex-direction: column; }
-  .icon-text-btn { align-self: flex-start; }
+}
+
+/* Mobile pass: iOS Safari auto-zooms the whole page when focusing any text
+   input styled under 16px, which is jarring — bump every form field to
+   exactly 16px here instead of changing the (slightly more compact) desktop
+   sizing everywhere. Touch targets for the small icon buttons are also
+   enlarged, since ~22px is comfortably clickable with a mouse but a miss-tap
+   magnet with a finger. */
+@media (max-width: 600px) {
+  input[type="text"], input[type="email"], input[type="password"],
+  input[type="date"], input[type="search"], select, textarea {
+    /* !important: several more-specific desktop rules (form.add-task
+       input[type="text"], .field input, etc.) set font-size: 14px, and this
+       has to win over every one of them without hunting down and re-
+       specifying each selector here. */
+    font-size: 16px !important;
+  }
+  .page-title { font-size: clamp(24px, 7vw, 30px); }
+
+  .collapse-btn, .details-toggle, .del-btn { width: 32px; height: 32px; font-size: 15px; }
+  .check { width: 24px; height: 24px; }
+  .check::after { width: 12px; height: 12px; }
+  .color-swatch { width: 24px; height: 24px; }
+  .color-swatch.small { width: 20px; height: 20px; }
+  /* The stacked ▲▼ pair is the only way to reorder on a touch device (no
+     drag-and-drop there), so it gets a real touch-sized target here, not
+     just a bump — at desktop size the two glyphs are legible but genuinely
+     too small and close together to tap reliably with a finger. */
+  .move-btns { gap: 4px; }
+  .move-btn { width: 34px; height: 30px; font-size: 16px; }
+  .move-btn:disabled { opacity: 0.4; }
+  .row { padding: 14px 14px; gap: 8px; }
+  .section-head { padding: 14px; }
+  .tab { padding: 9px 14px; }
+  .tab-add { width: 36px; height: 36px; }
+
+  /* On a narrow phone, the section header (drag handle/move buttons,
+     collapse arrow, color dot, name, item count, delete button) is too much
+     to fit on one line — without a wrap point, the name INPUT doesn't get
+     to wrap like text would, it just silently clips to a few characters
+     ("Illustration Clients" rendering as "Illustratio"). Give the row a
+     wrap point and a sane minimum width for the name so it reliably gets
+     most of the first line, with the count/delete button dropping to a
+     second line instead of squeezing the name down.  */
+  .section-head { flex-wrap: wrap; row-gap: 6px; gap: 8px; }
+  .section-name { flex: 1 1 140px; }
+
+  /* Same squeeze, same fix, for task/grocery rows: on a narrow phone the
+     due-badge/recur-badge/category-select/delete button (all fixed-width)
+     were leaving almost no room for the item text, which can't truncate
+     like the section name did — instead it wrapped one word-fragment per
+     line ("Orga/nic/Baby/Spina/ch..."). Giving row-text a minimum flex
+     basis forces those trailing controls onto their own second line
+     instead, so the text gets most of the first line to itself. */
+  .row { flex-wrap: wrap; row-gap: 6px; }
+  .row-text { flex: 1 1 120px; }
 }

@@ -20,7 +20,6 @@
         <button id="delete-page-btn" type="button" class="section-del page-del" hidden>Delete page</button>
       </div>
     </div>
-    <button id="settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog">&#9881; Settings</button>
   </header>
 
   <nav class="tabs" id="tabs" aria-label="Pages"></nav>
@@ -37,7 +36,10 @@
 
   <div class="toolbar">
     <p class="summary" id="summary">Loading&hellip;</p>
-    <button id="review-btn" type="button" class="review-btn" hidden>Weekly review</button>
+    <div class="toolbar-actions">
+      <button id="voice-btn" type="button" class="review-btn voice-btn" title="Voice commands: &quot;add milk to produce&quot;, &quot;check off bananas&quot;, &quot;uncheck bananas&quot;">&#127908; Voice</button>
+      <button id="review-btn" type="button" class="review-btn" hidden>Weekly review</button>
+    </div>
   </div>
 
   <div class="review-panel" id="review-panel" hidden>
@@ -57,6 +59,10 @@
   </div>
 
   <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <div class="bottom-bar">
+    <button id="settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog">&#9881; Settings</button>
+  </div>
 
   <footer class="footer-note">
     <p>Everything here is stored on this browser (<code>localStorage</code>). Sign in under <strong>Settings &rarr; Account &amp; sync</strong> to keep it synced across computers automatically, or use <strong>Export</strong>/<strong>Import</strong> there to move it by hand.</p>
