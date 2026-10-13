@@ -77,6 +77,18 @@ main { width: 100%; max-width: 680px; }
 .page-del { flex-shrink: 0; }
 .page-del[hidden] { display: none; }
 
+.share-page-btn { flex-shrink: 0; font-size: 12px; padding: 7px 11px; }
+.share-page-btn.is-shared { color: var(--accent); border-color: var(--accent); }
+
+.invite-code-display {
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 16px; font-weight: 700;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; text-align: center; margin: 0 0 10px; word-break: break-all;
+}
+.invite-code-display[hidden] { display: none; }
+
+.tab-shared-icon { margin-right: 4px; font-size: 11px; }
+
 .tabs { display: flex; align-items: center; gap: 6px; margin: 0 0 18px; flex-wrap: wrap; }
 .tab {
   font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); background: transparent;

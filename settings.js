@@ -44,6 +44,17 @@ export function initSettings(store, ai, onAiChange) {
   const importInput = document.getElementById("import-input");
   const dataStatus = document.getElementById("data-settings-status");
 
+  const joinShareCode = document.getElementById("join-share-code");
+  const joinShareBtn = document.getElementById("join-share-btn");
+  const joinShareStatus = document.getElementById("join-share-status");
+
+  const liveCalendarSection = document.getElementById("live-calendar-section");
+  const liveCalendarGenerateBtn = document.getElementById("live-calendar-generate-btn");
+  const liveCalendarUrl = document.getElementById("live-calendar-url");
+  const liveCalendarActions = document.getElementById("live-calendar-actions");
+  const liveCalendarCopyBtn = document.getElementById("live-calendar-copy-btn");
+  const liveCalendarStatus = document.getElementById("live-calendar-status");
+
   FONT_OPTIONS.forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -111,9 +122,11 @@ export function initSettings(store, ai, onAiChange) {
       accountNotConfigured.hidden = false;
       accountForm.hidden = true;
       accountLoggedIn.hidden = true;
+      liveCalendarSection.hidden = true;
       return;
     }
     accountNotConfigured.hidden = true;
+    liveCalendarSection.hidden = !s.loggedIn;
     if (s.loggedIn) {
       accountForm.hidden = true;
       accountLoggedIn.hidden = false;
@@ -148,6 +161,11 @@ export function initSettings(store, ai, onAiChange) {
     dataStatus.textContent = "";
     accountAuthStatus.textContent = "";
     accountAuthStatus.className = "settings-status";
+    joinShareStatus.textContent = "";
+    joinShareStatus.className = "settings-status";
+    joinShareCode.value = "";
+    liveCalendarStatus.textContent = "";
+    liveCalendarStatus.className = "settings-status";
     overlay.hidden = false;
   }
 
@@ -208,6 +226,61 @@ export function initSettings(store, ai, onAiChange) {
   accountSignoutBtn.addEventListener("click", async () => {
     accountSignoutBtn.disabled = true;
     try { await sync.signOut(); } finally { accountSignoutBtn.disabled = false; }
+  });
+
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  joinShareBtn.addEventListener("click", async () => {
+    joinShareBtn.disabled = true;
+    joinShareStatus.textContent = "Joining…";
+    joinShareStatus.className = "settings-status";
+    try {
+      const page = await sync.joinSharedList(joinShareCode.value);
+      joinShareStatus.textContent = "Joined — “" + (page.name || "that list") + "” is now one of your pages.";
+      joinShareStatus.className = "settings-status ok";
+      joinShareCode.value = "";
+    } catch (e) {
+      joinShareStatus.textContent = (e && e.message) || "Couldn't join that list.";
+      joinShareStatus.className = "settings-status err";
+    } finally {
+      joinShareBtn.disabled = false;
+    }
+  });
+  joinShareCode.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); joinShareBtn.click(); }
+  });
+
+  liveCalendarGenerateBtn.addEventListener("click", async () => {
+    liveCalendarGenerateBtn.disabled = true;
+    liveCalendarStatus.textContent = "Generating…";
+    liveCalendarStatus.className = "settings-status";
+    try {
+      const token = await sync.getOrCreateCalendarToken();
+      const url = sync.calendarFeedUrl(token);
+      liveCalendarUrl.textContent = url;
+      liveCalendarUrl.hidden = false;
+      liveCalendarActions.hidden = false;
+      liveCalendarStatus.textContent = "Add this as a “subscribed” calendar in Apple Calendar, Google Calendar, or Outlook — it'll stay current on its own, including anything from a shared list you're on.";
+      liveCalendarStatus.className = "settings-status ok";
+    } catch (e) {
+      liveCalendarStatus.textContent = (e && e.message) || "Couldn't generate a calendar link.";
+      liveCalendarStatus.className = "settings-status err";
+    } finally {
+      liveCalendarGenerateBtn.disabled = false;
+    }
+  });
+
+  liveCalendarCopyBtn.addEventListener("click", async () => {
+    const ok = await copyToClipboard(liveCalendarUrl.textContent || "");
+    liveCalendarStatus.textContent = ok ? "Copied." : "Couldn't copy automatically — select and copy the link above by hand.";
+    liveCalendarStatus.className = ok ? "settings-status ok" : "settings-status err";
   });
 
   testBtn.addEventListener("click", async () => {

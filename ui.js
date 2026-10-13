@@ -8,6 +8,7 @@ import {
   dueBadgeInfo, recurrenceValue, recurrenceFromValue
 } from "./dates.js";
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
+import * as sync from "./sync.js";
 
 const LS_COLLAPSED_PREFIX = "ventureTasks:collapsed:";
 const LS_ACTIVE_PAGE = "ventureTasks:activePage";
@@ -85,6 +86,25 @@ export function initUI(store, ai) {
   const todayPanel = document.getElementById("today-panel");
   const todayBody = document.getElementById("today-body");
   const todayCloseBtn = document.getElementById("today-close");
+
+  const sharePageBtn = document.getElementById("share-page-btn");
+  const shareOverlay = document.getElementById("share-overlay");
+  const sharePageName = document.getElementById("share-page-name");
+  const shareClose = document.getElementById("share-close");
+  const shareDoneBtn = document.getElementById("share-done-btn");
+  const shareNotConfigured = document.getElementById("share-not-configured");
+  const shareSignedOut = document.getElementById("share-signed-out");
+  const shareUnshared = document.getElementById("share-unshared");
+  const shareUnsharedHelp = document.getElementById("share-unshared-help");
+  const shareGenerateBtn = document.getElementById("share-generate-btn");
+  const shareShared = document.getElementById("share-shared");
+  const shareSharedHelp = document.getElementById("share-shared-help");
+  const shareInviteCode = document.getElementById("share-invite-code");
+  const shareCopyBtn = document.getElementById("share-copy-btn");
+  const shareMemberCount = document.getElementById("share-member-count");
+  const shareStopBtn = document.getElementById("share-stop-btn");
+  const shareLeaveBtn = document.getElementById("share-leave-btn");
+  const shareStatus = document.getElementById("share-status");
 
   const openDetailsIds = {};
   let reviewCtl = null;
@@ -809,8 +829,8 @@ export function initUI(store, ai) {
       const tab = document.createElement("button");
       tab.type = "button";
       tab.className = "tab" + (p.id === page.id ? " active" : "");
-      tab.textContent = p.name || "Untitled";
-      tab.title = p.name || "Untitled";
+      tab.textContent = (p.sharedPageId ? "\u{1F465} " : "") + (p.name || "Untitled");
+      tab.title = (p.name || "Untitled") + (p.sharedPageId ? " (shared list)" : "");
       tab.addEventListener("click", () => {
         if (activePageId === p.id) return;
         activePageId = p.id;
@@ -845,6 +865,8 @@ export function initUI(store, ai) {
 
     if (document.activeElement !== pageTitleInput) pageTitleInput.value = page.name || "";
     deletePageBtn.hidden = state.pages.length <= 1;
+    sharePageBtn.textContent = page.sharedPageId ? "\u{1F465} Shared" : "Share list";
+    sharePageBtn.classList.toggle("is-shared", !!page.sharedPageId);
 
     newSectionInput.placeholder = labels.addSectionPlaceholder;
     addSectionBtn.textContent = labels.addSectionBtn;
@@ -1130,13 +1152,13 @@ export function initUI(store, ai) {
 
   let deleteConfirming = false;
   let deleteRevertTimer = null;
-  deletePageBtn.addEventListener("click", () => {
+  deletePageBtn.addEventListener("click", async () => {
     const page = activePage(store.getState());
     if (!page) return;
     if (!deleteConfirming) {
       deleteConfirming = true;
       deletePageBtn.classList.add("confirm");
-      deletePageBtn.textContent = "Delete this page?";
+      deletePageBtn.textContent = page.sharedPageId ? "Delete this page? (also leaves the shared list)" : "Delete this page?";
       deleteRevertTimer = setTimeout(() => {
         deleteConfirming = false;
         deletePageBtn.classList.remove("confirm");
@@ -1148,11 +1170,157 @@ export function initUI(store, ai) {
     deleteConfirming = false;
     deletePageBtn.classList.remove("confirm");
     deletePageBtn.textContent = "Delete page";
+    // Deleting a shared page locally shouldn't leave it orphaned on the
+    // server — stop sharing it (owner) or leave it (editor) first, same
+    // as the Share modal's buttons would. leaveSharedList already removes
+    // the local page itself (nothing useful to keep once you're off a
+    // list you don't own), so there's nothing left for us to delete in
+    // that case; stopSharingList only unshares it, leaving the normal
+    // delete below to actually remove it, same as any personal page.
+    if (page.sharedPageId) {
+      try {
+        if (page.shareRole === "owner") {
+          await sync.stopSharingList(page.id);
+        } else {
+          await sync.leaveSharedList(page.id);
+          activePageId = null;
+          setStoredActivePage("");
+          render(store.getState());
+          return;
+        }
+      } catch (e) { /* best-effort — fall through to the normal local delete below */ }
+    }
     const ok = store.deletePage(page.id);
     if (ok) {
       activePageId = null; // fall back to the first remaining page
       setStoredActivePage("");
       render(store.getState());
+    }
+  });
+
+  // --- share modal: turn the active page into a shared list, or manage
+  // one it's already on. Sharing/joining itself lives in sync.js — this
+  // is just the modal's state rendering and button wiring. ---
+  function renderShareModal(status, page, info) {
+    shareNotConfigured.hidden = true;
+    shareSignedOut.hidden = true;
+    shareUnshared.hidden = true;
+    shareShared.hidden = true;
+    shareStatus.textContent = "";
+    shareStatus.className = "settings-status";
+
+    if (!status.configured) { shareNotConfigured.hidden = false; return; }
+    if (!status.loggedIn) { shareSignedOut.hidden = false; return; }
+
+    if (!page.sharedPageId) {
+      shareUnshared.hidden = false;
+      shareUnsharedHelp.textContent = "Turn “" + (page.name || "this list") + "” into a shared list — anyone with the invite code can join it, and you'll both see each other's changes live.";
+      return;
+    }
+
+    shareShared.hidden = false;
+    const isOwner = page.shareRole === "owner";
+    shareSharedHelp.textContent = isOwner
+      ? "This list is shared. Anyone with the code below can join it."
+      : "You're on this shared list.";
+    shareInviteCode.hidden = !(info && info.inviteCode);
+    shareInviteCode.textContent = info && info.inviteCode ? info.inviteCode : "";
+    shareMemberCount.textContent = info && typeof info.memberCount === "number"
+      ? info.memberCount + (info.memberCount === 1 ? " person has" : " people have") + " this list"
+      : "";
+    shareStopBtn.hidden = !isOwner;
+    shareLeaveBtn.hidden = isOwner;
+  }
+
+  async function openShareModal() {
+    const page = activePage(store.getState());
+    if (!page) return;
+    sharePageName.textContent = page.name || "Untitled";
+    const status = sync.getStatus();
+    renderShareModal(status, page, null);
+    shareOverlay.hidden = false;
+    if (status.configured && status.loggedIn && page.sharedPageId) {
+      try {
+        const info = await sync.getSharedListInfo(page.id);
+        // The modal could have been closed, or the page's share state
+        // could have changed, while this was in flight — recheck before
+        // applying a result that's now stale.
+        const freshPage = store.getState().pages.find((p) => p.id === page.id);
+        if (!shareOverlay.hidden && freshPage && freshPage.sharedPageId) {
+          renderShareModal(sync.getStatus(), freshPage, info);
+        }
+      } catch (e) { /* non-fatal — the modal still works without member info */ }
+    }
+  }
+
+  function closeShareModal() { shareOverlay.hidden = true; }
+
+  sharePageBtn.addEventListener("click", openShareModal);
+  shareClose.addEventListener("click", closeShareModal);
+  shareDoneBtn.addEventListener("click", closeShareModal);
+  shareOverlay.addEventListener("click", (e) => { if (e.target === shareOverlay) closeShareModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !shareOverlay.hidden) closeShareModal();
+  });
+
+  shareGenerateBtn.addEventListener("click", async () => {
+    const page = activePage(store.getState());
+    if (!page) return;
+    shareGenerateBtn.disabled = true;
+    shareStatus.textContent = "Setting up…";
+    shareStatus.className = "settings-status";
+    try {
+      await sync.createSharedList(page.id);
+      const freshPage = store.getState().pages.find((p) => p.id === page.id);
+      const info = await sync.getSharedListInfo(page.id);
+      renderShareModal(sync.getStatus(), freshPage, info);
+    } catch (e) {
+      shareStatus.textContent = (e && e.message) || "Couldn't share this list.";
+      shareStatus.className = "settings-status err";
+    } finally {
+      shareGenerateBtn.disabled = false;
+    }
+  });
+
+  shareCopyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(shareInviteCode.textContent || "");
+      shareStatus.textContent = "Copied.";
+      shareStatus.className = "settings-status ok";
+    } catch (e) {
+      shareStatus.textContent = "Couldn't copy automatically — select and copy the code above by hand.";
+      shareStatus.className = "settings-status err";
+    }
+  });
+
+  shareStopBtn.addEventListener("click", async () => {
+    const page = activePage(store.getState());
+    if (!page) return;
+    shareStopBtn.disabled = true;
+    try {
+      await sync.stopSharingList(page.id);
+      const freshPage = store.getState().pages.find((p) => p.id === page.id);
+      renderShareModal(sync.getStatus(), freshPage, null);
+    } catch (e) {
+      shareStatus.textContent = (e && e.message) || "Couldn't stop sharing.";
+      shareStatus.className = "settings-status err";
+    } finally {
+      shareStopBtn.disabled = false;
+    }
+  });
+
+  shareLeaveBtn.addEventListener("click", async () => {
+    const page = activePage(store.getState());
+    if (!page) return;
+    shareLeaveBtn.disabled = true;
+    try {
+      await sync.leaveSharedList(page.id);
+      closeShareModal();
+      render(store.getState());
+    } catch (e) {
+      shareStatus.textContent = (e && e.message) || "Couldn't leave this list.";
+      shareStatus.className = "settings-status err";
+      shareLeaveBtn.disabled = false;
     }
   });
 

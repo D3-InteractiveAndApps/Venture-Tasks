@@ -17,6 +17,7 @@
       <p class="eyebrow">Venture Tasks</p>
       <div class="page-title-row">
         <h1 class="page-title-wrap"><input id="page-title" type="text" class="page-title" maxlength="60" aria-label="Page title" /></h1>
+        <button id="share-page-btn" type="button" class="secondary-btn share-page-btn">Share list</button>
         <button id="delete-page-btn" type="button" class="section-del page-del" hidden>Delete page</button>
       </div>
     </div>
@@ -122,6 +123,16 @@
             <button id="account-signout-btn" type="button" class="secondary-btn">Log out</button>
             <span class="settings-status" id="account-sync-status"></span>
           </div>
+
+          <p class="settings-help">Got an invite code for someone else's shared list? Enter it here &mdash; it'll show up as a new page, live-synced with everyone else on it.</p>
+          <label class="field">
+            <span class="field-label">Invite code</span>
+            <input id="join-share-code" type="text" maxlength="6" autocomplete="off" placeholder="e.g. 7FQT2K" style="text-transform: uppercase;" />
+          </label>
+          <div class="settings-actions">
+            <button id="join-share-btn" type="button" class="secondary-btn">Join shared list</button>
+            <span class="settings-status" id="join-share-status"></span>
+          </div>
         </div>
       </section>
 
@@ -203,10 +214,76 @@
         </div>
         <p class="settings-help" id="data-settings-status"></p>
       </section>
+
+      <section class="settings-section" id="live-calendar-section" hidden>
+        <h3>Live calendar</h3>
+        <p class="settings-help">
+          A subscribe link instead of a file: add it once to Apple Calendar, Google Calendar,
+          or Outlook as a "subscription" calendar and it keeps itself up to date &mdash; no
+          re-exporting. It's the same due dates as the export above, plus anything on a shared
+          list you're a member of, so everyone subscribed sees the same live calendar.
+        </p>
+        <div class="settings-actions">
+          <button id="live-calendar-generate-btn" type="button" class="secondary-btn">Get my calendar link</button>
+        </div>
+        <p class="invite-code-display" id="live-calendar-url" hidden></p>
+        <div class="settings-actions" id="live-calendar-actions" hidden>
+          <button id="live-calendar-copy-btn" type="button" class="secondary-btn">Copy link</button>
+        </div>
+        <p class="settings-help" id="live-calendar-status"></p>
+      </section>
     </div>
 
     <div class="modal-foot">
       <button id="settings-save" type="button" class="primary-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="share-overlay" hidden>
+  <div class="modal" id="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title">
+    <div class="modal-head">
+      <h2 id="share-title">Share &ldquo;<span id="share-page-name"></span>&rdquo;</h2>
+      <button id="share-close" type="button" class="del-btn" aria-label="Close share">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <section class="settings-section" id="share-not-configured" hidden>
+        <p class="settings-help">
+          Shared lists need an account &mdash; see <strong>Settings &rarr; Account &amp; sync</strong>
+          to set up cloud sync first (it's free, via Supabase), then come back here.
+        </p>
+      </section>
+
+      <section class="settings-section" id="share-signed-out" hidden>
+        <p class="settings-help">Sign in under <strong>Settings &rarr; Account &amp; sync</strong> first &mdash; a shared list lives on an account, not just this browser.</p>
+      </section>
+
+      <section class="settings-section" id="share-unshared" hidden>
+        <p class="settings-help" id="share-unshared-help"></p>
+        <div class="settings-actions">
+          <button id="share-generate-btn" type="button" class="primary-btn">Generate invite code</button>
+        </div>
+      </section>
+
+      <section class="settings-section" id="share-shared" hidden>
+        <p class="settings-help" id="share-shared-help"></p>
+        <p class="invite-code-display" id="share-invite-code"></p>
+        <div class="settings-actions">
+          <button id="share-copy-btn" type="button" class="secondary-btn">Copy code</button>
+        </div>
+        <p class="settings-help" id="share-member-count"></p>
+        <div class="settings-actions">
+          <button id="share-stop-btn" type="button" class="section-del" hidden>Stop sharing</button>
+          <button id="share-leave-btn" type="button" class="section-del" hidden>Leave this shared list</button>
+        </div>
+      </section>
+
+      <p class="settings-status" id="share-status" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="modal-foot">
+      <button id="share-done-btn" type="button" class="primary-btn">Done</button>
     </div>
   </div>
 </div>

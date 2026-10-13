@@ -1,6 +1,6 @@
 # Venture Tasks
 
-A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
+A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export (one-time file or a live subscribe link), shared lists you can co-edit with another account in real time, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
 
 It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
 
@@ -19,7 +19,9 @@ It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step,
 - Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline (to-do pages only).
 - **Client and value tags**, in a task's details panel (to-do pages only) — put a client name and a dollar amount on a task (an invoice, a deliverable, anything billable) and both show up as small badges right on the row.
 - A small health strip per section (open tasks, overdue count, days since last activity, and now total open client value when any tagged tasks are still unchecked) on to-do pages.
-- **Calendar export** — in Settings → Your data, export a `.ics` file of every open task's due date, importable into Apple Calendar, Google Calendar, or Outlook. See "Exporting to a calendar app" below for how it works and its one real limitation.
+- **Calendar export** — in Settings → Your data, export a one-time `.ics` file of every open task's due date, importable into Apple Calendar, Google Calendar, or Outlook. See "Exporting to a calendar app" below for how it works and its one real limitation.
+- **Live calendar** — also in Settings → Your data, a subscribe link (needs an account) that stays current on its own, no re-exporting. See "Live calendar: a subscribe link instead of a file" below.
+- **Shared lists** — turn any page into a shared list (the **Share list** button next to the page title) and invite someone else by code; both of you see each other's changes within a second or two, same as two of your own devices syncing. See "Sharing a list with someone else" below.
 - An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
 - Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same pages/sections/tasks. Works fully without this too, storing data on-device only.
 - Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
@@ -105,7 +107,42 @@ This is intentionally simple — a tag and a number, not invoicing or time track
 
 Settings → Your data → **Export calendar (.ics)** downloads every open to-do-page task's due date as a standard `.ics` file, with the task text as the event title and its page, section, client, and value (whatever's set) in the event description. Double-click the file, or import it, to add those due dates to Apple Calendar, Google Calendar, Outlook, or anything else that reads the iCalendar format.
 
-The one real limitation, worth being upfront about: this is a **snapshot**, not a live feed. A static site has nowhere to host the kind of always-on `webcal://` subscription URL that updates itself automatically — that needs a server watching for changes and serving requests, which is exactly the backend this app deliberately doesn't have. So it's a re-export-when-you-want-it-to-catch-up tool, not a set-it-and-forget-it sync. For most people checking in every so often, that's a fair trade for staying a backend-free static site; if you outgrow it, the honest fix is standing up a small server endpoint that generates the `.ics` on the fly per account, which is a bigger change than this round of work.
+The one real limitation, worth being upfront about: this is a **snapshot**, not a live feed. A static site has nowhere to host the kind of always-on `webcal://` subscription URL that updates itself automatically — that needs a server watching for changes and serving requests, which is exactly the backend this app deliberately doesn't have. So it's a re-export-when-you-want-it-to-catch-up tool, not a set-it-and-forget-it sync. If you want the live version instead, that's the next section — it needs the small server endpoint this one deliberately avoids, which is exactly what it adds.
+
+## Live calendar: a subscribe link instead of a file
+
+Settings → Your data → **Get my calendar link** (only shown once you're signed in — see "Setting up accounts and cross-device sync" below if you haven't yet) gives you a URL instead of a file. Add that URL to Apple Calendar, Google Calendar, or Outlook as a *subscribed* calendar — each of them has an "add by URL" or "subscribe" option for exactly this — and from then on it checks itself for updates on its own schedule (typically every few hours), no re-exporting. It shows the same due dates as the one-time export above, plus anything from a shared list you're a member of (see the next section), since a shared list's due dates are part of your account's data either way.
+
+This needed one small piece of actual server (an "Edge Function," which is really just a tiny bit of code Supabase runs for you on request) — see "Deploying the live calendar and shared lists" below for the one-time setup. Keep the link itself private: anyone who has it can see that account's due dates with no further login, the same way anyone who has your Google Calendar's "secret address" can see your events. There's no "regenerate" button in the UI yet; if a link ever leaks, you can revoke it by deleting its row from the `calendar_tokens` table in the Supabase dashboard — the old link stops working, and a fresh "Get my calendar link" click issues a new one.
+
+## Sharing a list with someone else
+
+Next to any page's title, **Share list** turns that page into a shared list: click **Generate invite code**, send the 6-character code to whoever you want on it (text, email, however), and once they enter it under Settings → Account & sync → **Join shared list**, that page shows up for them too — pointed at the exact same sections and tasks, not a copy. From then on, edits either of you make (checking something off, adding an item, changing a due date) show up for the other within a second or two, the same way your own two devices stay in sync today. A shared page gets a small &#128101; icon on its tab so it's easy to tell apart from a personal one.
+
+A few things worth knowing:
+
+- **Both of you need an account** (see "Setting up accounts and cross-device sync" below) — a shared list lives on the server, not just in one browser.
+- **Whoever shared it owns it.** The **Share list** modal shows a **Stop sharing** button for the owner, which deletes the shared list entirely for everyone on it (your own copy of its sections/tasks stays — it just goes back to being a normal personal page). Anyone else on it gets a **Leave this shared list** button instead, which removes it from their account only.
+- **It's grocery lists first, but works for any page.** The original ask behind this feature was a shared grocery list with a partner, but there's nothing grocery-specific about it — share a to-do page the same way if that's useful (client/value tags and due dates carry over and sync too).
+- **Last-write-wins still applies within a single edit**, same as the regular device-to-device sync — if you both somehow change the exact same task at the exact same instant, whichever save reaches the server a moment later wins. In normal use (one of you adding milk while the other checks off bread) this never comes up, since you're touching different rows.
+- **Deleting the page** (rather than using Stop sharing/Leave) does the right thing too — it unshares or leaves first, then deletes locally, so you don't end up with an orphaned shared list nobody's managing.
+
+## Deploying the live calendar and shared lists
+
+Both features above need a couple of new database tables and one small Edge Function, on top of the account/sync setup in the next section. Do this once, in the same Supabase project:
+
+1. **Run the extra SQL.** In the SQL Editor, run everything in `shared-lists-schema.sql` (shared lists), then everything in `live-calendar-schema.sql` (the live calendar). Both files are in this folder, with comments explaining each piece — neither touches the `app_state` table or its policy from the main setup below.
+2. **Deploy the Edge Function.** This one piece needs the [Supabase CLI](https://supabase.com/docs/guides/cli) (`npm install -g supabase`, then `supabase login`). From this project's folder:
+
+   ```bash
+   supabase link --project-ref your-project-ref   # find this in your project's URL/settings
+   supabase functions deploy ics-feed
+   ```
+
+   That's it — no secrets to configure by hand. Supabase automatically gives every Edge Function its project URL and a service-role key, which is what `supabase/functions/ics-feed/index.ts` uses to look up a calendar link's owner and read their tasks.
+3. Reload the app (or redeploy, if it's already hosted). **Share list** and **Get my calendar link** now work instead of showing the "not set up" message.
+
+This environment couldn't connect to a live Supabase project to test the actual deployed function or a real two-account round trip against it — the sharing/mapping logic itself is unit-tested (see `test-shared-lists-unit.mjs`) and the UI's gating/rendering is tested in a real browser (`test-shared-lists-e2e.mjs`), but "two real accounts editing the same list" and "a calendar app actually polling the live link" are both worth trying by hand once this is deployed, the same way the account-sync checkbox fix below asks you to double-check.
 
 ## Syncing across devices
 
@@ -174,18 +211,21 @@ dates.js                Date/due-date/recurrence helper functions
 ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
-sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items), the cross-page Today view, drag-and-drop, touch reordering, AI action wiring
+sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) and shared-list sharing/joining/live-calendar-token logic — no-ops until configured
+ui.js                   Rendering (tabs, sections, tasks/grocery items), the cross-page Today view, the share-list modal, drag-and-drop, touch reordering, AI action wiring
 voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
-ics.js                  Builds the .ics calendar export from current due dates
-settings.js             Settings modal logic (AI connection, account/sync, appearance, export/import)
+ics.js                  Builds the one-time .ics calendar export from current due dates
+settings.js             Settings modal logic (AI connection, account/sync, join-a-shared-list, live-calendar link, appearance, export/import)
 theme.js                Font options list + applying the font/color overrides to the page
 undo.js                 Global Ctrl+Z / Cmd+Z handler
 app.js                  Entry point — wires everything together
+shared-lists-schema.sql       SQL to run once for shared lists (tables + row-level security + the invite-code join function)
+live-calendar-schema.sql      SQL to run once for the live calendar (the token table)
+supabase/functions/ics-feed/index.ts   The one server piece: an Edge Function that serves a live .ics feed by token
 ```
 
-Everything sits directly in this one folder on purpose, with no subfolders — GitHub's drag-and-drop uploader doesn't reliably preserve nested folders, and a 404'd `css/` or `js/` path is the single most common way this kind of app silently breaks when hosted. One flat folder means there's nothing to get wrong when uploading or re-uploading files.
+Everything the browser actually loads sits directly in this one folder on purpose, with no subfolders — GitHub's drag-and-drop uploader doesn't reliably preserve nested folders, and a 404'd `css/` or `js/` path is the single most common way this kind of app silently breaks when hosted. One flat folder means there's nothing to get wrong when uploading or re-uploading files. The one exception is `supabase/functions/ics-feed/`, which isn't part of the hosted site at all — it's deployed separately, straight to Supabase, with the CLI command in "Deploying the live calendar and shared lists" above. It can sit right here in the repo for convenience without affecting GitHub Pages hosting; it's just never uploaded as a static file.
 
 ## Browser support
 
-Any modern evergreen browser (Chrome, Edge, Firefox, Safari) released in the last few years, on desktop or mobile. It uses standard ES modules, `localStorage`, native `<input type="color">` and `<input type="date">`, and the HTML5 drag-and-drop API (desktop only — touch devices get up/down buttons instead, see "Mobile-friendly" above) — no polyfills, no framework, no dependencies to install for end users. The one feature with uneven support is **voice commands**, which relies on the Web Speech API: it works in Chrome, Edge, and Safari, but Firefox hasn't implemented it — everything else in the app is unaffected there.
+Any modern evergreen browser (Chrome, Edge, Firefox, Safari) released in the last few years, on desktop or mobile. It uses standard ES modules, `localStorage`, native `<input type="color">` and `<input type="date">`, and the HTML5 drag-and-drop API (desktop only — touch devices get up/down buttons instead, see "Mobile-friendly" above) — no polyfills, no framework, no dependencies to install for end users. The one feature with uneven support is **voice commands**, which relies on the Web Speech API: it works in Chrome, Edge, and Safari, but Firefox hasn't implemented it — everything else in the app is unaffected there. The **Copy** buttons on the invite code and live-calendar link use the clipboard API, which requires a secure context (plain `https://`, which GitHub Pages already is, or `localhost` while testing) — on the rare page served over plain `http://`, copying will fail and the status message will say to select and copy by hand instead.

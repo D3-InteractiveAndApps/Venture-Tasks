@@ -4,7 +4,8 @@
 // sync.js). A simple pub/sub lets app.js re-render whenever data changes.
 //
 // Data shape:
-//   state.pages    — top-level tabs: { id, name, type: "tasks"|"grocery", order, createdAt }
+//   state.pages    — top-level tabs: { id, name, type: "tasks"|"grocery", order, createdAt,
+//                     sharedPageId, shareRole: null|"owner"|"editor" }
 //   state.sections — belong to a page: { id, pageId, name, order, color, createdAt }
 //   state.tasks    — belong to a section: { id, pageId, sectionId, text, done, order,
 //                     color, dueDate, recurrence, isSomeday, client, value,
@@ -80,11 +81,11 @@ function normalizeState(raw) {
   if (pages.length === 0) {
     // Old (pre-pages) data, or a brand-new empty store: give everything a
     // single default page so existing sections/tasks aren't orphaned.
-    const defaultPage = { id: uid(), name: DEFAULT_PAGE_NAME, type: "tasks", order: 1, createdAt: nowIso() };
+    const defaultPage = { id: uid(), name: DEFAULT_PAGE_NAME, type: "tasks", order: 1, sharedPageId: null, shareRole: null, createdAt: nowIso() };
     pages = [defaultPage];
     sections = sections.map((s) => (s.pageId ? s : Object.assign({}, s, { pageId: defaultPage.id })));
   } else {
-    pages = pages.map((p, i) => Object.assign({ type: "tasks", order: i + 1 }, p));
+    pages = pages.map((p, i) => Object.assign({ type: "tasks", order: i + 1, sharedPageId: null, shareRole: null }, p));
     const fallbackPageId = pages[0].id;
     sections = sections.map((s) => (s.pageId ? s : Object.assign({}, s, { pageId: fallbackPageId })));
   }
@@ -169,7 +170,11 @@ export const store = {
   },
 
   // --- pages ---
-  addPage(name, type) {
+  // seedDefaults=false skips the default grocery categories — used when
+  // joining a shared list, where the real sections are about to be
+  // pulled down from the shared tables and default ones would just be
+  // duplicate clutter.
+  addPage(name, type, seedDefaults) {
     pushUndo();
     const pageType = type === "grocery" ? "grocery" : "tasks";
     const page = {
@@ -177,10 +182,12 @@ export const store = {
       name: (name || "Untitled").trim() || "Untitled",
       type: pageType,
       order: state.pages.reduce((max, p) => Math.max(max, p.order || 0), 0) + 1,
+      sharedPageId: null,
+      shareRole: null,
       createdAt: nowIso()
     };
     state.pages.push(page);
-    if (pageType === "grocery") {
+    if (pageType === "grocery" && seedDefaults !== false) {
       // One undo step for the whole page, default categories included —
       // not one step per category.
       DEFAULT_GROCERY_CATEGORIES.forEach((catName, i) => {
@@ -395,6 +402,74 @@ export const store = {
     state.tasks.push(full);
     persist();
     return full;
+  },
+
+  // --- shared pages (see sync.js + shared-lists-schema.sql) ---
+  // A page with sharedPageId set is mirrored into the shared_* Supabase
+  // tables, where every member — not just this account — can read and
+  // write its sections/tasks. Everything below is remote-originated
+  // (like replaceState), so none of it is undoable or pushes to the
+  // local undo stack; Ctrl+Z is for things *you* just typed, not for
+  // syncing itself.
+
+  findPage(id) {
+    return findPage(id);
+  },
+
+  // Marks a local page as backed by a shared_pages row — called once,
+  // right after creating one (owner) or redeeming an invite code (joiner).
+  markPageShared(pageId, sharedPageId, role) {
+    const p = findPage(pageId);
+    if (!p) return;
+    p.sharedPageId = sharedPageId;
+    p.shareRole = role;
+    persist();
+  },
+
+  // Reverts a page to personal-only: the owner stopped sharing it, or
+  // this account left it. Whatever sections/tasks are already in local
+  // state stay right where they are — they just stop being mirrored.
+  unmarkPageShared(pageId) {
+    const p = findPage(pageId);
+    if (!p) return;
+    p.sharedPageId = null;
+    p.shareRole = null;
+    persist();
+  },
+
+  // Wholesale-replaces every section/task belonging to `pageId` with
+  // what's currently in the shared tables — used right after joining a
+  // shared list for the first time, when there's nothing local to merge.
+  replaceSharedPageContents(pageId, sections, tasks) {
+    state.sections = state.sections.filter((s) => s.pageId !== pageId).concat(sections);
+    state.tasks = state.tasks.filter((t) => t.pageId !== pageId).concat(tasks);
+    persist();
+  },
+
+  // Applies one incoming realtime change for a shared section/task.
+  upsertRemoteSection(section) {
+    const i = state.sections.findIndex((s) => s.id === section.id);
+    if (i === -1) state.sections.push(section);
+    else state.sections[i] = section;
+    persist();
+  },
+
+  removeRemoteSection(id) {
+    state.sections = state.sections.filter((s) => s.id !== id);
+    state.tasks = state.tasks.filter((t) => t.sectionId !== id);
+    persist();
+  },
+
+  upsertRemoteTask(task) {
+    const i = state.tasks.findIndex((t) => t.id === task.id);
+    if (i === -1) state.tasks.push(task);
+    else state.tasks[i] = task;
+    persist();
+  },
+
+  removeRemoteTask(id) {
+    state.tasks = state.tasks.filter((t) => t.id !== id);
+    persist();
   },
 
   // --- settings (AI provider, appearance) ---

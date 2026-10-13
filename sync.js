@@ -36,6 +36,16 @@ let pushInFlight = false;
 let pushQueued = false;
 let pushScheduled = false; // true from schedulePush() until runPush() actually starts
 
+// --- shared lists (see shared-lists-schema.sql) ---
+// One Supabase Realtime channel per shared page this account is a member
+// of, keyed by sharedPageId, plus a snapshot of the previous state so
+// store changes can be diffed to figure out which shared rows actually
+// need pushing. Applying an incoming remote row sets applyingRemoteShared
+// so that store-change doesn't get diffed right back out to Supabase.
+const sharedChannels = new Map();
+let applyingRemoteShared = false;
+let prevStateForSharedDiff = null;
+
 const statusListeners = new Set();
 let status = { configured: isSupabaseConfigured(), loggedIn: false, email: null, syncing: false, error: null };
 
@@ -188,6 +198,357 @@ function subscribeRealtime() {
     .subscribe();
 }
 
+// --- field mapping: local camelCase <-> shared_* snake_case columns ---
+
+export function sectionToRow(section, sharedPageId) {
+  return {
+    id: section.id,
+    shared_page_id: sharedPageId,
+    name: section.name,
+    order: section.order || 0,
+    color: section.color || null
+  };
+}
+
+export function rowToSection(row, pageId) {
+  return {
+    id: row.id,
+    pageId: pageId,
+    name: row.name,
+    order: row.order || 0,
+    color: row.color || null,
+    createdAt: row.created_at
+  };
+}
+
+export function taskToRow(task, sharedPageId) {
+  return {
+    id: task.id,
+    shared_page_id: sharedPageId,
+    shared_section_id: task.sectionId,
+    text: task.text,
+    done: !!task.done,
+    order: task.order || 0,
+    color: task.color || null,
+    due_date: task.dueDate || null,
+    recurrence: task.recurrence || null,
+    is_someday: !!task.isSomeday,
+    client: task.client || null,
+    value: task.value == null ? null : task.value,
+    updated_at: task.updatedAt || new Date().toISOString(),
+    completed_at: task.completedAt || null
+  };
+}
+
+export function rowToTask(row, pageId) {
+  return {
+    id: row.id,
+    pageId: pageId,
+    sectionId: row.shared_section_id,
+    text: row.text,
+    done: !!row.done,
+    order: row.order || 0,
+    color: row.color || null,
+    dueDate: row.due_date || null,
+    recurrence: row.recurrence || null,
+    isSomeday: !!row.is_someday,
+    client: row.client || null,
+    value: row.value == null ? null : row.value,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at || null
+  };
+}
+
+// Business-field equality — deliberately ignores timestamp fields, which
+// can come back from Postgres in a slightly different string format than
+// what we sent, and would otherwise make a harmless echo of our own push
+// look like a real incoming change.
+export function sectionsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.name === b.name && (a.order || 0) === (b.order || 0) && (a.color || null) === (b.color || null);
+}
+
+export function tasksEqual(a, b) {
+  if (!a || !b) return false;
+  return a.text === b.text && !!a.done === !!b.done && (a.order || 0) === (b.order || 0)
+    && (a.color || null) === (b.color || null) && (a.dueDate || null) === (b.dueDate || null)
+    && (a.recurrence || null) === (b.recurrence || null) && !!a.isSomeday === !!b.isSomeday
+    && (a.client || null) === (b.client || null) && (a.value == null ? null : a.value) === (b.value == null ? null : b.value)
+    && a.sectionId === b.sectionId;
+}
+
+function sharedPageIdsByPageId(state) {
+  const map = {};
+  (state.pages || []).forEach((p) => { if (p.sharedPageId) map[p.id] = p.sharedPageId; });
+  return map;
+}
+
+// Called on every store change. Looks only at sections/tasks that belong
+// to a currently-shared page, and pushes just the rows that actually
+// changed since the last store notification — an upsert for an added or
+// edited row, a delete for a removed one. Personal (unshared) pages are
+// completely untouched by this; they continue to go through the normal
+// whole-blob push in schedulePush() exactly as before.
+async function diffAndPushSharedRows(nextState) {
+  if (!client || !session || applyingRemoteShared) { prevStateForSharedDiff = nextState; return; }
+  const prevState = prevStateForSharedDiff;
+  prevStateForSharedDiff = nextState;
+  if (!prevState) return; // nothing to diff against yet
+
+  const sharedByPage = sharedPageIdsByPageId(nextState);
+  if (Object.keys(sharedByPage).length === 0) return;
+
+  const prevSections = {}; (prevState.sections || []).forEach((s) => { if (sharedByPage[s.pageId]) prevSections[s.id] = s; });
+  const prevTasks = {}; (prevState.tasks || []).forEach((t) => { if (sharedByPage[t.pageId]) prevTasks[t.id] = t; });
+  const nextSections = {}; (nextState.sections || []).forEach((s) => { if (sharedByPage[s.pageId]) nextSections[s.id] = s; });
+  const nextTasks = {}; (nextState.tasks || []).forEach((t) => { if (sharedByPage[t.pageId]) nextTasks[t.id] = t; });
+
+  const sectionUpserts = [];
+  Object.keys(nextSections).forEach((id) => {
+    const s = nextSections[id];
+    if (!sectionsEqual(prevSections[id], s)) sectionUpserts.push(sectionToRow(s, sharedByPage[s.pageId]));
+  });
+  const sectionDeleteIds = Object.keys(prevSections).filter((id) => !nextSections[id]);
+
+  const taskUpserts = [];
+  Object.keys(nextTasks).forEach((id) => {
+    const t = nextTasks[id];
+    if (!tasksEqual(prevTasks[id], t)) taskUpserts.push(taskToRow(t, sharedByPage[t.pageId]));
+  });
+  const taskDeleteIds = Object.keys(prevTasks).filter((id) => !nextTasks[id]);
+
+  try {
+    if (sectionUpserts.length) await client.from("shared_sections").upsert(sectionUpserts);
+    if (taskUpserts.length) await client.from("shared_tasks").upsert(taskUpserts);
+    if (sectionDeleteIds.length) await client.from("shared_sections").delete().in("id", sectionDeleteIds);
+    if (taskDeleteIds.length) await client.from("shared_tasks").delete().in("id", taskDeleteIds);
+  } catch (e) {
+    setStatus({ error: describeError(e) });
+  }
+}
+
+// Subscribes to realtime changes for one shared page's sections/tasks.
+// Safe to call more than once for the same sharedPageId — it replaces
+// any existing channel for that id first.
+function subscribeSharedPageRealtime(pageId, sharedPageId) {
+  if (!client) return;
+  const existing = sharedChannels.get(sharedPageId);
+  if (existing) { client.removeChannel(existing); sharedChannels.delete(sharedPageId); }
+
+  const applyRemote = (fn) => {
+    applyingRemoteShared = true;
+    try { fn(); } finally { applyingRemoteShared = false; }
+  };
+
+  const ch = client
+    .channel("shared_page_" + sharedPageId)
+    .on("postgres_changes", { event: "*", schema: "public", table: "shared_sections", filter: "shared_page_id=eq." + sharedPageId }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        applyRemote(() => currentStore.removeRemoteSection(payload.old.id));
+      } else {
+        const incoming = rowToSection(payload.new, pageId);
+        const current = currentStore.getState().sections.find((s) => s.id === incoming.id);
+        if (sectionsEqual(current, incoming)) return;
+        applyRemote(() => currentStore.upsertRemoteSection(incoming));
+      }
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "shared_tasks", filter: "shared_page_id=eq." + sharedPageId }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        applyRemote(() => currentStore.removeRemoteTask(payload.old.id));
+      } else {
+        const incoming = rowToTask(payload.new, pageId);
+        const current = currentStore.getState().tasks.find((t) => t.id === incoming.id);
+        if (tasksEqual(current, incoming)) return;
+        applyRemote(() => currentStore.upsertRemoteTask(incoming));
+      }
+    })
+    .subscribe();
+  sharedChannels.set(sharedPageId, ch);
+}
+
+function unsubscribeSharedPageRealtime(sharedPageId) {
+  const existing = sharedChannels.get(sharedPageId);
+  if (existing && client) client.removeChannel(existing);
+  sharedChannels.delete(sharedPageId);
+}
+
+function unsubscribeAllSharedPages() {
+  sharedChannels.forEach((ch) => { if (client) client.removeChannel(ch); });
+  sharedChannels.clear();
+}
+
+// Re-subscribes every local page already marked as shared — called after
+// sign-in, so a device picks back up its shared lists without the user
+// having to re-share or re-join anything.
+function resubscribeAllSharedPages() {
+  const state = currentStore.getState();
+  (state.pages || []).forEach((p) => {
+    if (p.sharedPageId) subscribeSharedPageRealtime(p.id, p.sharedPageId);
+  });
+}
+
+function randomInviteCode() {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L — easy to read aloud
+  const bytes = new Uint8Array(6);
+  (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(bytes) : bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+  let code = "";
+  for (let i = 0; i < bytes.length; i++) code += alphabet[bytes[i] % alphabet.length];
+  return code;
+}
+
+// Turns a local page into a shared list: creates the shared_pages row
+// (with a fresh invite code), adds this account as its owner member, and
+// mirrors every section/task that page currently has. Returns the
+// invite code to show the user.
+export async function createSharedList(pageId) {
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first — shared lists need an account.");
+  const state = currentStore.getState();
+  const page = state.pages.find((p) => p.id === pageId);
+  if (!page) throw new Error("That list doesn't exist.");
+  if (page.sharedPageId) throw new Error("This list is already shared.");
+
+  const inviteCode = randomInviteCode();
+  const { data: sharedPage, error: pageErr } = await supabase
+    .from("shared_pages")
+    .insert({ owner_user_id: session.user.id, name: page.name, type: page.type, invite_code: inviteCode })
+    .select()
+    .single();
+  if (pageErr) throw new Error(describeError(pageErr));
+
+  const { error: memberErr } = await supabase
+    .from("shared_page_members")
+    .insert({ shared_page_id: sharedPage.id, user_id: session.user.id, role: "owner" });
+  if (memberErr) throw new Error(describeError(memberErr));
+
+  const sections = state.sections.filter((s) => s.pageId === pageId);
+  const tasks = state.tasks.filter((t) => t.pageId === pageId);
+  if (sections.length) {
+    const { error } = await supabase.from("shared_sections").insert(sections.map((s) => sectionToRow(s, sharedPage.id)));
+    if (error) throw new Error(describeError(error));
+  }
+  if (tasks.length) {
+    const { error } = await supabase.from("shared_tasks").insert(tasks.map((t) => taskToRow(t, sharedPage.id)));
+    if (error) throw new Error(describeError(error));
+  }
+
+  currentStore.markPageShared(pageId, sharedPage.id, "owner");
+  subscribeSharedPageRealtime(pageId, sharedPage.id);
+  return sharedPage.invite_code;
+}
+
+// Joins a shared list by invite code: creates a new local page for it,
+// pulls down its current sections/tasks, and subscribes to future
+// changes. Returns the new local page.
+export async function joinSharedList(code) {
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first — shared lists need an account.");
+  const trimmed = (code || "").trim().toUpperCase();
+  if (!trimmed) throw new Error("Enter an invite code.");
+
+  const { data: sharedPage, error } = await supabase.rpc("redeem_share_code", { code: trimmed });
+  if (error) throw new Error(describeError(error));
+
+  const [{ data: sectionRows, error: secErr }, { data: taskRows, error: taskErr }] = await Promise.all([
+    supabase.from("shared_sections").select("*").eq("shared_page_id", sharedPage.id),
+    supabase.from("shared_tasks").select("*").eq("shared_page_id", sharedPage.id)
+  ]);
+  if (secErr) throw new Error(describeError(secErr));
+  if (taskErr) throw new Error(describeError(taskErr));
+
+  const localPage = currentStore.addPage(sharedPage.name, sharedPage.type, false);
+  const sections = (sectionRows || []).map((r) => rowToSection(r, localPage.id));
+  const tasks = (taskRows || []).map((r) => rowToTask(r, localPage.id));
+  currentStore.replaceSharedPageContents(localPage.id, sections, tasks);
+  currentStore.markPageShared(localPage.id, sharedPage.id, "editor");
+  subscribeSharedPageRealtime(localPage.id, sharedPage.id);
+  return localPage;
+}
+
+// Returns the invite code + how many people are on a shared list, for
+// the "already shared" view of the share modal.
+export async function getSharedListInfo(pageId) {
+  const supabase = await ensureClient();
+  const state = currentStore.getState();
+  const page = state.pages.find((p) => p.id === pageId);
+  if (!supabase || !page || !page.sharedPageId) return null;
+  const [{ data: pageRow }, { count }] = await Promise.all([
+    supabase.from("shared_pages").select("invite_code").eq("id", page.sharedPageId).maybeSingle(),
+    supabase.from("shared_page_members").select("user_id", { count: "exact", head: true }).eq("shared_page_id", page.sharedPageId)
+  ]);
+  return {
+    inviteCode: pageRow ? pageRow.invite_code : null,
+    memberCount: typeof count === "number" ? count : null,
+    role: page.shareRole
+  };
+}
+
+// Owner-only: permanently stops sharing a list. Deletes the shared_pages
+// row (which cascades to members/sections/tasks server-side); the local
+// copy of the list stays put and just goes back to being personal.
+export async function stopSharingList(pageId) {
+  const supabase = await ensureClient();
+  const state = currentStore.getState();
+  const page = state.pages.find((p) => p.id === pageId);
+  if (!supabase || !page || !page.sharedPageId) return;
+  if (page.shareRole !== "owner") throw new Error("Only the person who shared this list can stop sharing it.");
+  const { error } = await supabase.from("shared_pages").delete().eq("id", page.sharedPageId);
+  if (error) throw new Error(describeError(error));
+  unsubscribeSharedPageRealtime(page.sharedPageId);
+  currentStore.unmarkPageShared(pageId);
+}
+
+// Non-owner: leaves a shared list. Removes this account's membership
+// server-side, then removes the local page (its content remains on the
+// server and for every other member — just not on this account anymore).
+export async function leaveSharedList(pageId) {
+  const supabase = await ensureClient();
+  const state = currentStore.getState();
+  const page = state.pages.find((p) => p.id === pageId);
+  if (!supabase || !session || !page || !page.sharedPageId) return;
+  const { error } = await supabase.from("shared_page_members").delete()
+    .eq("shared_page_id", page.sharedPageId).eq("user_id", session.user.id);
+  if (error) throw new Error(describeError(error));
+  unsubscribeSharedPageRealtime(page.sharedPageId);
+  currentStore.deletePage(pageId);
+}
+
+// --- live calendar feed (see live-calendar-schema.sql + the ics-feed
+// Edge Function) ---
+
+function randomCalendarToken() {
+  const bytes = new Uint8Array(24);
+  if (window.crypto && typeof window.crypto.getRandomValues === "function") window.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Returns this account's calendar token, creating one the first time
+// it's asked for. The token is the credential for the live feed URL —
+// anyone with it can read that account's due dates with no further
+// login, so it's never logged and the only way to revoke a leaked link
+// is to delete the row and generate a new one (not currently exposed in
+// the UI — see README for how to do it by hand if you ever need to).
+export async function getOrCreateCalendarToken() {
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first — the live calendar needs an account.");
+  const { data: existing, error: selErr } = await supabase
+    .from("calendar_tokens").select("token").eq("user_id", session.user.id).maybeSingle();
+  if (selErr) throw new Error(describeError(selErr));
+  if (existing && existing.token) return existing.token;
+
+  const token = randomCalendarToken();
+  const { data: inserted, error } = await supabase
+    .from("calendar_tokens").insert({ token, user_id: session.user.id }).select("token").single();
+  if (error) throw new Error(describeError(error));
+  return inserted.token;
+}
+
+export function calendarFeedUrl(token) {
+  return SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/ics-feed?token=" + token;
+}
+
 function describeError(e) {
   if (!e) return "Unknown sync error.";
   if (e.message) return e.message;
@@ -198,6 +559,7 @@ async function handleSessionChange(newSession) {
   session = newSession || null;
   if (channel && client) { client.removeChannel(channel); channel = null; }
 
+  unsubscribeAllSharedPages();
   if (!session) {
     setStatus({ loggedIn: false, email: null, syncing: false, error: null });
     return;
@@ -205,6 +567,7 @@ async function handleSessionChange(newSession) {
   setStatus({ loggedIn: true, email: session.user.email, error: null });
   await pullOrSeedRemoteState();
   subscribeRealtime();
+  resubscribeAllSharedPages();
 }
 
 export async function initSync(store) {
@@ -227,7 +590,7 @@ export async function initSync(store) {
       handleSessionChange(newSession);
     });
 
-    store.subscribe(() => schedulePush());
+    store.subscribe((nextState) => { schedulePush(); diffAndPushSharedRows(nextState); });
   })();
   return initPromise;
 }
