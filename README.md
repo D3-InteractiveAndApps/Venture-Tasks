@@ -1,6 +1,6 @@
 # Venture Tasks
 
-A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export (one-time file or a live subscribe link), shared lists you can co-edit with another account in real time, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
+A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export (one-time file or a live subscribe link), shared lists you can co-edit with another account in real time, a Family Calendar page type with freestanding events and any-time list linking, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
 
 It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
 
@@ -8,7 +8,7 @@ It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step,
 
 - **Pages**, switched via tabs across the top — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** tab; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
 - **Today view** — tap the **Today** button (it shows a count badge when there's anything to see) for everything overdue or due today, pulled from *every* page at once, not just whichever one you're currently looking at. Check something off right there, or tap its page/section tag to jump straight to it. See "Using the Today view" below.
-- Two page types, chosen when you add a page: a regular **to-do list**, or a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime.
+- Three page types, chosen when you add a page: a regular **to-do list**, a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime — or a **Family Calendar**, a month-grid view for freestanding events (not tied to any to-do list) that can also pull in due dates from any other page you link to it. See "Family Calendar" below.
 - Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered — by drag-and-drop on desktop, or with a pair of up/down buttons on touch devices (drag-and-drop isn't something touchscreens support natively).
 - Tasks within a section: add, check off, color-code, drag between sections, and **reorder within the same section** — by drag-and-drop on desktop, or the same up/down buttons on touch.
 - Checking off a task on a to-do page gets a small "nice work" animation (not shown on grocery lists, where checking items off is just... checking items off).
@@ -22,6 +22,7 @@ It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step,
 - **Calendar export** — in Settings → Your data, export a one-time `.ics` file of every open task's due date, importable into Apple Calendar, Google Calendar, or Outlook. See "Exporting to a calendar app" below for how it works and its one real limitation.
 - **Live calendar** — also in Settings → Your data, a subscribe link (needs an account) that stays current on its own, no re-exporting. See "Live calendar: a subscribe link instead of a file" below.
 - **Shared lists** — turn any page into a shared list (the **Share list** button next to the page title) and invite someone else by code; both of you see each other's changes within a second or two, same as two of your own devices syncing. See "Sharing a list with someone else" below.
+- **Family Calendar** — a month-grid page type for a family (or any group) to see the same calendar and each other's changes to it, with freestanding events (a date, and an optional time) that don't need to live on a to-do list at all, plus the ability to link any existing list to any calendar at any time so its due dates show up on the grid too. See "Family Calendar" below.
 - An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
 - Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same pages/sections/tasks. Works fully without this too, storing data on-device only.
 - Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
@@ -105,7 +106,7 @@ This is intentionally simple — a tag and a number, not invoicing or time track
 
 ## Exporting to a calendar app
 
-Settings → Your data → **Export calendar (.ics)** downloads every open to-do-page task's due date as a standard `.ics` file, with the task text as the event title and its page, section, client, and value (whatever's set) in the event description. Double-click the file, or import it, to add those due dates to Apple Calendar, Google Calendar, Outlook, or anything else that reads the iCalendar format.
+Settings → Your data → **Export calendar (.ics)** downloads every open to-do-page task's due date as a standard `.ics` file, with the task text as the event title and its page, section, client, and value (whatever's set) in the event description. Double-click the file, or import it, to add those due dates to Apple Calendar, Google Calendar, Outlook, or anything else that reads the iCalendar format. A Family Calendar page's own events come along too (grocery items still don't, same as ever) — one with a time set exports as a real timed event with a default one-hour duration, not an all-day one.
 
 The one real limitation, worth being upfront about: this is a **snapshot**, not a live feed. A static site has nowhere to host the kind of always-on `webcal://` subscription URL that updates itself automatically — that needs a server watching for changes and serving requests, which is exactly the backend this app deliberately doesn't have. So it's a re-export-when-you-want-it-to-catch-up tool, not a set-it-and-forget-it sync. If you want the live version instead, that's the next section — it needs the small server endpoint this one deliberately avoids, which is exactly what it adds.
 
@@ -115,6 +116,8 @@ Settings → Your data → **Get my calendar link** (only shown once you're sign
 
 This needed one small piece of actual server (an "Edge Function," which is really just a tiny bit of code Supabase runs for you on request) — see "Deploying the live calendar and shared lists" below for the one-time setup. Keep the link itself private: anyone who has it can see that account's due dates with no further login, the same way anyone who has your Google Calendar's "secret address" can see your events. There's no "regenerate" button in the UI yet; if a link ever leaks, you can revoke it by deleting its row from the `calendar_tokens` table in the Supabase dashboard — the old link stops working, and a fresh "Get my calendar link" click issues a new one.
 
+Worth being clear about since it trips people up: this live link is a read-only external feed for Apple/Google/Outlook-style calendar apps — it's not the same thing as the in-app Family Calendar below, which is its own page you view and edit right inside Venture Tasks and sync live between accounts. Nothing stops you from using both — a Family Calendar page's own events show up in this feed the same as any other due date would.
+
 ## Sharing a list with someone else
 
 Next to any page's title, **Share list** turns that page into a shared list: click **Generate invite code**, send the 6-character code to whoever you want on it (text, email, however), and once they enter it under Settings → Account & sync → **Join shared list**, that page shows up for them too — pointed at the exact same sections and tasks, not a copy. From then on, edits either of you make (checking something off, adding an item, changing a due date) show up for the other within a second or two, the same way your own two devices stay in sync today. A shared page gets a small &#128101; icon on its tab so it's easy to tell apart from a personal one.
@@ -123,15 +126,27 @@ A few things worth knowing:
 
 - **Both of you need an account** (see "Setting up accounts and cross-device sync" below) — a shared list lives on the server, not just in one browser.
 - **Whoever shared it owns it.** The **Share list** modal shows a **Stop sharing** button for the owner, which deletes the shared list entirely for everyone on it (your own copy of its sections/tasks stays — it just goes back to being a normal personal page). Anyone else on it gets a **Leave this shared list** button instead, which removes it from their account only.
-- **It's grocery lists first, but works for any page.** The original ask behind this feature was a shared grocery list with a partner, but there's nothing grocery-specific about it — share a to-do page the same way if that's useful (client/value tags and due dates carry over and sync too).
+- **It's grocery lists first, but works for any page** — including a Family Calendar page. The original ask behind this feature was a shared grocery list with a partner, but there's nothing grocery-specific about it — share a to-do page the same way if that's useful (client/value tags and due dates carry over and sync too), or share a Family Calendar page to get the live, multi-person calendar described below.
 - **Last-write-wins still applies within a single edit**, same as the regular device-to-device sync — if you both somehow change the exact same task at the exact same instant, whichever save reaches the server a moment later wins. In normal use (one of you adding milk while the other checks off bread) this never comes up, since you're touching different rows.
 - **Deleting the page** (rather than using Stop sharing/Leave) does the right thing too — it unshares or leaves first, then deletes locally, so you don't end up with an orphaned shared list nobody's managing.
 
-## Deploying the live calendar and shared lists
+## Family Calendar
 
-Both features above need a couple of new database tables and one small Edge Function, on top of the account/sync setup in the next section. Do this once, in the same Supabase project:
+Add a page and choose **Family calendar** as its type, and instead of a checklist you get a month grid — built for a family (or any small group) to see the same calendar and each other's updates to it, live, the same way a shared list stays in sync.
 
-1. **Run the extra SQL.** In the SQL Editor, run everything in `shared-lists-schema.sql` (shared lists), then everything in `live-calendar-schema.sql` (the live calendar). Both files are in this folder, with comments explaining each piece — neither touches the `app_state` table or its policy from the main setup below.
+**Freestanding events.** Use the quick-add form above the grid to add an event right on the calendar — a date (required) and, optionally, a time. It doesn't need to belong to any to-do list at all; that was the whole point of this page type over just reusing a to-do list's due dates. Click a day to pick which date the form adds to next, or jump straight to today with the **Today** button next to the month name. An event you added here can be renamed in place (click its text) or removed (the **×**); checking it off just dims it, same spirit as checking off a task.
+
+**Linking a list, any time, not just at creation.** The **Linked lists** button (next to Share list, on a calendar page) lets you link any existing to-do or grocery list to the calendar — its open due dates show up on the grid alongside the calendar's own events, tagged with which list they came from (click that tag to jump straight to the list). This works both ways and at any point in a calendar's life: link a list the moment you create the calendar, or months later; link more than one; unlink one without affecting anything else. A linked list's own events stay editable only on the list itself — the calendar view shows them read-only, with a jump-to-source tag instead of inline editing, since editing really belongs on the list, not a second place pretending to be the list.
+
+**Sharing it, and sharing what's linked to it.** A Family Calendar page shares exactly like any other page — **Share list** next to the title, same invite-code flow. Once it's shared, linking a NEW list to it asks whether you'd also like to share that list with everyone already on the calendar — say yes, and they're added to the list directly (no separate invite code for them to enter), so a calendar shared with your family and a grocery list you just linked to it can both show up for everyone in one step. Say no, and the list still shows up on the grid for you, just not for anyone else yet — nothing is forced.
+
+**One deliberate scope limit, worth knowing:** a shared calendar's set of linked lists is deliberately *not* pushed over realtime the way checking off a task is — it's resolved when a member opens that calendar page (or signs back in), not the instant someone else links something. In practice this means: if someone else links a new list to a calendar you're both on, you'll see it next time you open that calendar page rather than the second they click Link. This was a deliberate corner cut to keep the feature shippable — the underlying due dates and events on anything already linked still sync live same as ever, it's only the *list of which lists are linked* that catches up on open instead of instantly.
+
+## Deploying the live calendar, shared lists, and the Family Calendar
+
+These three features need a couple of new database tables and one small Edge Function, on top of the account/sync setup in the next section. Do this once, in the same Supabase project:
+
+1. **Run the extra SQL, in this order.** In the SQL Editor, run everything in `shared-lists-schema.sql` (shared lists) first, then `live-calendar-schema.sql` (the live calendar), then `family-calendar-schema.sql` (the Family Calendar's calendar-type pages, linked-lists, and event times — it builds on top of the shared-lists tables, so it has to go last). All three files are in this folder, with comments explaining each piece — none of them touches the `app_state` table or its policy from the main setup below.
 2. **Deploy the Edge Function.** This one piece needs the [Supabase CLI](https://supabase.com/docs/guides/cli) (`npm install -g supabase`, then `supabase login`). From this project's folder:
 
    ```bash
@@ -142,7 +157,7 @@ Both features above need a couple of new database tables and one small Edge Func
    That's it — no secrets to configure by hand. Supabase automatically gives every Edge Function its project URL and a service-role key, which is what `supabase/functions/ics-feed/index.ts` uses to look up a calendar link's owner and read their tasks.
 3. Reload the app (or redeploy, if it's already hosted). **Share list** and **Get my calendar link** now work instead of showing the "not set up" message.
 
-This environment couldn't connect to a live Supabase project to test the actual deployed function or a real two-account round trip against it — the sharing/mapping logic itself is unit-tested (see `test-shared-lists-unit.mjs`) and the UI's gating/rendering is tested in a real browser (`test-shared-lists-e2e.mjs`), but "two real accounts editing the same list" and "a calendar app actually polling the live link" are both worth trying by hand once this is deployed, the same way the account-sync checkbox fix below asks you to double-check.
+This environment couldn't connect to a live Supabase project to test the actual deployed function or a real two-account round trip against it — the sharing/mapping logic itself is unit-tested (see `test-shared-lists-unit.mjs`), the UI's gating/rendering is tested in a real browser (`test-shared-lists-e2e.mjs`, `test-family-calendar-e2e.mjs`), and the `.ics` builders' timed-vs-all-day logic is unit-tested too (`test-ics.mjs`). But "two real accounts editing the same list," "a calendar app actually polling the live link," and — new with the Family Calendar — "linking a list on an already-shared calendar actually grants the other members access, and the linked list shows up for them" are all worth trying by hand once this is deployed, the same way the account-sync checkbox fix below asks you to double-check.
 
 ## Syncing across devices
 
@@ -206,21 +221,22 @@ If you'd rather use Firebase instead of Supabase, the same idea applies (auth + 
 ```
 index.html             Markup + the settings modal — loads app.js as an ES module
 styles.css              All styling (light/dark via prefers-color-scheme, plus font/color overrides)
-store.js                localStorage data layer (pages, sections, tasks, settings, undo, export/import, replaceState)
+store.js                localStorage data layer (pages, sections, tasks — including calendar pages' linkedListIds and a task's optional eventTime — settings, undo, export/import, replaceState)
 dates.js                Date/due-date/recurrence helper functions
 ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
-sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime) and shared-list sharing/joining/live-calendar-token logic — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items), the cross-page Today view, the share-list modal, drag-and-drop, touch reordering, AI action wiring
+sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime), shared-list sharing/joining, live-calendar-token logic, and the Family Calendar's list-linking/cross-sharing logic — no-ops until configured
+ui.js                   Rendering (tabs, sections, tasks/grocery items, the Family Calendar's month grid), the cross-page Today view, the share-list and linked-lists modals, drag-and-drop, touch reordering, AI action wiring
 voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
-ics.js                  Builds the one-time .ics calendar export from current due dates
+ics.js                  Builds the one-time .ics calendar export from current due dates (timed when a Family Calendar event has a time set, all-day otherwise)
 settings.js             Settings modal logic (AI connection, account/sync, join-a-shared-list, live-calendar link, appearance, export/import)
 theme.js                Font options list + applying the font/color overrides to the page
 undo.js                 Global Ctrl+Z / Cmd+Z handler
 app.js                  Entry point — wires everything together
 shared-lists-schema.sql       SQL to run once for shared lists (tables + row-level security + the invite-code join function)
 live-calendar-schema.sql      SQL to run once for the live calendar (the token table)
+family-calendar-schema.sql    SQL to run once for the Family Calendar (calendar-type pages, linked-lists, event times, and the cross-share functions) — run after the two above
 supabase/functions/ics-feed/index.ts   The one server piece: an Edge Function that serves a live .ics feed by token
 ```
 

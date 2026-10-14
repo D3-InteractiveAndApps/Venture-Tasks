@@ -231,6 +231,7 @@ export function taskToRow(task, sharedPageId) {
     order: task.order || 0,
     color: task.color || null,
     due_date: task.dueDate || null,
+    event_time: task.eventTime || null,
     recurrence: task.recurrence || null,
     is_someday: !!task.isSomeday,
     client: task.client || null,
@@ -250,6 +251,7 @@ export function rowToTask(row, pageId) {
     order: row.order || 0,
     color: row.color || null,
     dueDate: row.due_date || null,
+    eventTime: row.event_time || null,
     recurrence: row.recurrence || null,
     isSomeday: !!row.is_someday,
     client: row.client || null,
@@ -273,6 +275,7 @@ export function tasksEqual(a, b) {
   if (!a || !b) return false;
   return a.text === b.text && !!a.done === !!b.done && (a.order || 0) === (b.order || 0)
     && (a.color || null) === (b.color || null) && (a.dueDate || null) === (b.dueDate || null)
+    && (a.eventTime || null) === (b.eventTime || null)
     && (a.recurrence || null) === (b.recurrence || null) && !!a.isSomeday === !!b.isSomeday
     && (a.client || null) === (b.client || null) && (a.value == null ? null : a.value) === (b.value == null ? null : b.value)
     && a.sectionId === b.sectionId;
@@ -419,7 +422,7 @@ export async function createSharedList(pageId) {
 
   const { error: memberErr } = await supabase
     .from("shared_page_members")
-    .insert({ shared_page_id: sharedPage.id, user_id: session.user.id, role: "owner" });
+    .insert({ shared_page_id: sharedPage.id, user_id: session.user.id, role: "owner", member_email: session.user.email });
   if (memberErr) throw new Error(describeError(memberErr));
 
   const sections = state.sections.filter((s) => s.pageId === pageId);
@@ -438,6 +441,31 @@ export async function createSharedList(pageId) {
   return sharedPage.invite_code;
 }
 
+// Shared logic for "this account now has access to a shared page it
+// doesn't have locally yet" — used both when explicitly joining by
+// invite code (joinSharedList) and when passively picking up a page
+// someone else gave this account access to, e.g. via the "share this
+// list with the calendar's members too?" flow (adoptNewSharedPages).
+// Creates the local page, pulls down its current content, marks it
+// shared, and subscribes to future changes.
+async function adoptSharedPage(sharedPage, role) {
+  const supabase = await ensureClient();
+  const [{ data: sectionRows, error: secErr }, { data: taskRows, error: taskErr }] = await Promise.all([
+    supabase.from("shared_sections").select("*").eq("shared_page_id", sharedPage.id),
+    supabase.from("shared_tasks").select("*").eq("shared_page_id", sharedPage.id)
+  ]);
+  if (secErr) throw new Error(describeError(secErr));
+  if (taskErr) throw new Error(describeError(taskErr));
+
+  const localPage = currentStore.addPage(sharedPage.name, sharedPage.type, false);
+  const sections = (sectionRows || []).map((r) => rowToSection(r, localPage.id));
+  const tasks = (taskRows || []).map((r) => rowToTask(r, localPage.id));
+  currentStore.replaceSharedPageContents(localPage.id, sections, tasks);
+  currentStore.markPageShared(localPage.id, sharedPage.id, role);
+  subscribeSharedPageRealtime(localPage.id, sharedPage.id);
+  return localPage;
+}
+
 // Joins a shared list by invite code: creates a new local page for it,
 // pulls down its current sections/tasks, and subscribes to future
 // changes. Returns the new local page.
@@ -450,20 +478,41 @@ export async function joinSharedList(code) {
   const { data: sharedPage, error } = await supabase.rpc("redeem_share_code", { code: trimmed });
   if (error) throw new Error(describeError(error));
 
-  const [{ data: sectionRows, error: secErr }, { data: taskRows, error: taskErr }] = await Promise.all([
-    supabase.from("shared_sections").select("*").eq("shared_page_id", sharedPage.id),
-    supabase.from("shared_tasks").select("*").eq("shared_page_id", sharedPage.id)
-  ]);
-  if (secErr) throw new Error(describeError(secErr));
-  if (taskErr) throw new Error(describeError(taskErr));
+  return adoptSharedPage(sharedPage, "editor");
+}
 
-  const localPage = currentStore.addPage(sharedPage.name, sharedPage.type, false);
-  const sections = (sectionRows || []).map((r) => rowToSection(r, localPage.id));
-  const tasks = (taskRows || []).map((r) => rowToTask(r, localPage.id));
-  currentStore.replaceSharedPageContents(localPage.id, sections, tasks);
-  currentStore.markPageShared(localPage.id, sharedPage.id, "editor");
-  subscribeSharedPageRealtime(localPage.id, sharedPage.id);
-  return localPage;
+// Picks up any shared page this account has been given membership on
+// (by someone else's add_shared_members_from call — the "share this
+// newly-linked list with the calendar's members too?" flow is the only
+// place that happens today) that isn't local yet. Called right after
+// sign-in, alongside resubscribeAllSharedPages: that function re-syncs
+// pages this account already knew about, this one adopts pages it's
+// newly been added to. Best-effort — one bad row shouldn't stop the
+// others from coming in.
+async function adoptNewSharedPages() {
+  const supabase = await ensureClient();
+  if (!supabase || !session) return;
+  const { data: memberRows, error } = await supabase
+    .from("shared_page_members")
+    .select("shared_page_id, role")
+    .eq("user_id", session.user.id);
+  if (error || !memberRows || !memberRows.length) return;
+
+  const state = currentStore.getState();
+  const knownSharedIds = new Set((state.pages || []).map((p) => p.sharedPageId).filter(Boolean));
+  const newOnes = memberRows.filter((m) => !knownSharedIds.has(m.shared_page_id));
+  if (!newOnes.length) return;
+
+  const { data: pageRows, error: pagesErr } = await supabase
+    .from("shared_pages").select("*").in("id", newOnes.map((m) => m.shared_page_id));
+  if (pagesErr || !pageRows) return;
+
+  for (const pageRow of pageRows) {
+    const membership = newOnes.find((m) => m.shared_page_id === pageRow.id);
+    try {
+      await adoptSharedPage(pageRow, (membership && membership.role) || "editor");
+    } catch (e) { /* best-effort — one bad row shouldn't block the others */ }
+  }
 }
 
 // Returns the invite code + how many people are on a shared list, for
@@ -512,6 +561,137 @@ export async function leaveSharedList(pageId) {
   if (error) throw new Error(describeError(error));
   unsubscribeSharedPageRealtime(page.sharedPageId);
   currentStore.deletePage(pageId);
+}
+
+// --- family calendar list-linking (see family-calendar-schema.sql) ---
+
+// Returns the other people a shared calendar is already shared with
+// (excluding the caller) — [] when the calendar isn't shared with
+// anyone else yet, or isn't shared at all. The UI uses an empty result
+// to skip the "share this list with them too?" prompt entirely, since
+// there's no one to offer to share with.
+export async function getCalendarOtherMembers(calendarPageId) {
+  const supabase = await ensureClient();
+  const state = currentStore.getState();
+  const page = state.pages.find((p) => p.id === calendarPageId);
+  if (!supabase || !session || !page || !page.sharedPageId) return [];
+  const { data, error } = await supabase
+    .from("shared_page_members")
+    .select("user_id, member_email")
+    .eq("shared_page_id", page.sharedPageId);
+  if (error) throw new Error(describeError(error));
+  return (data || [])
+    .filter((m) => m.user_id !== session.user.id)
+    .map((m) => ({ userId: m.user_id, email: m.member_email || "another member" }));
+}
+
+// Links a to-do/grocery list to a calendar so its due dates show up on
+// the grid. If the calendar is only local (never shared), this is
+// purely a local link — there's no one else to sync it to. If the
+// calendar IS shared, the list's shared_pages.id is what every member
+// resolves back to their own local copy (see resolveLinkedLists), so
+// the list has to be shared too before it can show up for anyone but
+// the caller — this shares it (as a new shared list of its own) when
+// it isn't already. `shareWithMembers` controls only whether the
+// calendar's existing members are actually granted access to the list
+// (via add_shared_members_from, no new invite code needed) — the
+// caller declining still links the list for their own grid, it just
+// won't appear on anyone else's until it's shared some other way.
+export async function linkListToCalendar(calendarPageId, listPageId, shareWithMembers) {
+  const state = currentStore.getState();
+  const calendarPage = state.pages.find((p) => p.id === calendarPageId);
+  const listPage = state.pages.find((p) => p.id === listPageId);
+  if (!calendarPage || calendarPage.type !== "calendar") throw new Error("That calendar doesn't exist.");
+  if (!listPage) throw new Error("That list doesn't exist.");
+
+  if (!calendarPage.sharedPageId) {
+    currentStore.linkListToCalendar(calendarPageId, listPageId);
+    return;
+  }
+
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first — shared calendars need an account.");
+
+  let listSharedPageId = listPage.sharedPageId;
+  if (!listSharedPageId && shareWithMembers) {
+    await createSharedList(listPageId);
+    const refreshedList = currentStore.getState().pages.find((p) => p.id === listPageId);
+    listSharedPageId = refreshedList && refreshedList.sharedPageId;
+  }
+
+  currentStore.linkListToCalendar(calendarPageId, listPageId);
+  if (!listSharedPageId) return; // local-only list linked to a shared calendar — fine, just not synced to other members
+
+  const { data: calRow, error: calErr } = await supabase
+    .from("shared_pages").select("linked_shared_page_ids").eq("id", calendarPage.sharedPageId).maybeSingle();
+  if (calErr) throw new Error(describeError(calErr));
+  const current = (calRow && calRow.linked_shared_page_ids) || [];
+  const nextIds = current.includes(listSharedPageId) ? current : current.concat([listSharedPageId]);
+  const { error: setErr } = await supabase.rpc("set_calendar_linked_lists", {
+    calendar_shared_page_id: calendarPage.sharedPageId,
+    linked_ids: nextIds
+  });
+  if (setErr) throw new Error(describeError(setErr));
+
+  if (shareWithMembers) {
+    const { error: shareErr } = await supabase.rpc("add_shared_members_from", {
+      source_shared_page_id: calendarPage.sharedPageId,
+      target_shared_page_id: listSharedPageId
+    });
+    if (shareErr) throw new Error(describeError(shareErr));
+  }
+}
+
+// Unlinks a list from a calendar — just the "show its due dates here"
+// connection, not sharing itself (whoever already has access to the
+// list keeps it; use stopSharingList/leaveSharedList for that).
+export async function unlinkListFromCalendar(calendarPageId, listPageId) {
+  const state = currentStore.getState();
+  const calendarPage = state.pages.find((p) => p.id === calendarPageId);
+  const listPage = state.pages.find((p) => p.id === listPageId);
+
+  currentStore.unlinkListFromCalendar(calendarPageId, listPageId);
+  if (!calendarPage || !calendarPage.sharedPageId || !listPage || !listPage.sharedPageId) return;
+
+  const supabase = await ensureClient();
+  if (!supabase || !session) return;
+  const { data: calRow, error: calErr } = await supabase
+    .from("shared_pages").select("linked_shared_page_ids").eq("id", calendarPage.sharedPageId).maybeSingle();
+  if (calErr) throw new Error(describeError(calErr));
+  const current = (calRow && calRow.linked_shared_page_ids) || [];
+  const nextIds = current.filter((id) => id !== listPage.sharedPageId);
+  const { error: setErr } = await supabase.rpc("set_calendar_linked_lists", {
+    calendar_shared_page_id: calendarPage.sharedPageId,
+    linked_ids: nextIds
+  });
+  if (setErr) throw new Error(describeError(setErr));
+}
+
+// Translates a shared calendar's linked_shared_page_ids (shared_pages
+// ids — stable across accounts, unlike local page ids) into this
+// account's own local page ids, and stores the result via
+// store.setLinkedLists. Call this whenever a calendar page is opened,
+// and after sign-in — it's deliberately NOT pushed via realtime, so a
+// list someone else just linked can take until this account next opens
+// the calendar (or signs in again) to show up. See README.
+export async function resolveLinkedLists(calendarPageId) {
+  const supabase = await ensureClient();
+  const page = currentStore.getState().pages.find((p) => p.id === calendarPageId);
+  if (!supabase || !page || !page.sharedPageId || page.type !== "calendar") return;
+
+  const { data: calRow, error } = await supabase
+    .from("shared_pages").select("linked_shared_page_ids").eq("id", page.sharedPageId).maybeSingle();
+  if (error) throw new Error(describeError(error));
+  const sharedIds = (calRow && calRow.linked_shared_page_ids) || [];
+  if (!sharedIds.length) { currentStore.setLinkedLists(calendarPageId, []); return; }
+
+  const localIds = sharedIds
+    .map((sid) => {
+      const local = currentStore.getState().pages.find((p) => p.sharedPageId === sid);
+      return local ? local.id : null;
+    })
+    .filter(Boolean);
+  currentStore.setLinkedLists(calendarPageId, localIds);
 }
 
 // --- live calendar feed (see live-calendar-schema.sql + the ics-feed
@@ -566,6 +746,7 @@ async function handleSessionChange(newSession) {
   }
   setStatus({ loggedIn: true, email: session.user.email, error: null });
   await pullOrSeedRemoteState();
+  await adoptNewSharedPages();
   subscribeRealtime();
   resubscribeAllSharedPages();
 }

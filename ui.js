@@ -5,7 +5,7 @@
 
 import {
   STALE_DAYS, daysUntil, daysSince, activityText,
-  dueBadgeInfo, recurrenceValue, recurrenceFromValue
+  dueBadgeInfo, recurrenceValue, recurrenceFromValue, fmtDate, todayStr
 } from "./dates.js";
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
 import * as sync from "./sync.js";
@@ -32,6 +32,13 @@ const PAGE_LABELS = {
     emptyTasks: "No items yet in this category.",
     emptyAll: "No categories yet. Add your first one below.",
     noun: "category", nounCap: "Category"
+  },
+  // Calendar pages bypass almost all of this (see render()'s isCalendar
+  // branch) — kept mostly so nothing downstream chokes on a missing entry.
+  calendar: {
+    addSectionPlaceholder: "", addSectionBtn: "",
+    addTaskPlaceholder: () => "", emptyTasks: "", emptyAll: "",
+    noun: "event", nounCap: "Event"
   }
 };
 
@@ -73,6 +80,7 @@ export function initUI(store, ai) {
   const sectionsEl = document.getElementById("sections");
   const summaryEl = document.getElementById("summary");
   const statusEl = document.getElementById("status");
+  const addSectionPanel = document.getElementById("add-section-panel");
   const newSectionInput = document.getElementById("new-section");
   const addSectionBtn = document.getElementById("add-section-btn");
   const reviewBtn = document.getElementById("review-btn");
@@ -106,10 +114,35 @@ export function initUI(store, ai) {
   const shareLeaveBtn = document.getElementById("share-leave-btn");
   const shareStatus = document.getElementById("share-status");
 
+  const calendarLinksBtn = document.getElementById("calendar-links-btn");
+  const calendarLinksOverlay = document.getElementById("calendar-links-overlay");
+  const calendarLinksPageName = document.getElementById("calendar-links-page-name");
+  const calendarLinksClose = document.getElementById("calendar-links-close");
+  const calendarLinksDoneBtn = document.getElementById("calendar-links-done-btn");
+  const calendarLinkedListRows = document.getElementById("calendar-linked-list-rows");
+  const calendarNoLinks = document.getElementById("calendar-no-links");
+  const calendarLinkSelect = document.getElementById("calendar-link-select");
+  const calendarLinkAddBtn = document.getElementById("calendar-link-add-btn");
+  const calendarLinkAddEmpty = document.getElementById("calendar-link-add-empty");
+  const calendarSharePrompt = document.getElementById("calendar-share-prompt");
+  const calendarSharePromptText = document.getElementById("calendar-share-prompt-text");
+  const calendarShareYesBtn = document.getElementById("calendar-share-yes-btn");
+  const calendarShareNoBtn = document.getElementById("calendar-share-no-btn");
+  const calendarLinksStatus = document.getElementById("calendar-links-status");
+
   const openDetailsIds = {};
   let reviewCtl = null;
   let activeRecognizer = null;
   let activePageId = getStoredActivePage();
+  // Family calendar view state — kept here rather than in the store since
+  // it's purely local display state (which month you're looking at, which
+  // day is selected for the quick-add form), not data anyone else needs to
+  // see. Keyed by pageId so switching between two calendars remembers each
+  // one's own month.
+  const calendarViewMonths = {};
+  let calendarSelectedDate = null;
+  let lastResolvedLinksForPageId = null;
+  let pendingLinkListId = null;
   // Set right before a toggle that should celebrate, and consumed inside the
   // very next render pass (store.toggleTaskDone triggers that render
   // synchronously, rebuilding the DOM — so the celebration has to be applied
@@ -852,6 +885,271 @@ export function initUI(store, ai) {
     tabsEl.appendChild(addTab);
   }
 
+  // --- Family calendar (page.type === "calendar") ---
+
+  function getCalendarViewMonth(pageId) {
+    if (!calendarViewMonths[pageId]) {
+      const now = new Date();
+      calendarViewMonths[pageId] = { year: now.getFullYear(), month: now.getMonth() };
+    }
+    return calendarViewMonths[pageId];
+  }
+
+  function setCalendarViewMonth(pageId, year, month) {
+    calendarViewMonths[pageId] = { year, month };
+  }
+
+  // Translates a shared calendar's linked lists (shared_pages ids) into
+  // this account's own local page ids — see sync.js's resolveLinkedLists.
+  // Deliberately called only once per "visit" to this calendar page (not
+  // on every render while it's open), since it's a network round-trip and
+  // its result (store.setLinkedLists) itself triggers another render.
+  function maybeResolveLinkedLists(page) {
+    if (lastResolvedLinksForPageId === page.id) return;
+    lastResolvedLinksForPageId = page.id;
+    if (page.sharedPageId) sync.resolveLinkedLists(page.id).catch(() => {});
+  }
+
+  function formatEventTime(hhmm) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "");
+    if (!m) return hhmm || "";
+    let h = parseInt(m[1], 10);
+    const min = m[2];
+    const suffix = h >= 12 ? "pm" : "am";
+    h = h % 12; if (h === 0) h = 12;
+    return h + (min === "00" ? "" : ":" + min) + suffix;
+  }
+
+  // entry = { task, editable, pageName, pageId } — editable (own-page)
+  // events get an inline-renamable text field and a delete button;
+  // entries pulled in from a linked list are read-only here (editing
+  // belongs on the list itself) and instead get a little tag that jumps
+  // to that list's page, same pattern as the Today panel's page tag.
+  function buildCalendarEventChip(entry) {
+    const task = entry.task;
+    const chip = document.createElement("div");
+    chip.className = "calendar-event-chip" + (task.done ? " is-done" : "");
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = !!task.done;
+    check.setAttribute("aria-label", "Mark \"" + (task.text || "") + "\" done");
+    check.addEventListener("change", () => store.toggleTaskDone(task.id));
+    chip.appendChild(check);
+
+    if (task.eventTime) {
+      const time = document.createElement("span");
+      time.className = "calendar-event-time";
+      time.textContent = formatEventTime(task.eventTime);
+      chip.appendChild(time);
+    }
+
+    if (entry.editable) {
+      const text = document.createElement("input");
+      text.type = "text";
+      text.className = "calendar-event-text-input";
+      text.value = task.text || "";
+      text.maxLength = 200;
+      text.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); text.blur(); }
+        else if (e.key === "Escape") { text.value = task.text || ""; text.blur(); }
+      });
+      text.addEventListener("blur", () => {
+        const val = text.value.trim();
+        if (!val) { text.value = task.text || ""; return; }
+        if (val === task.text) return;
+        store.updateTask(task.id, { text: val });
+      });
+      chip.appendChild(text);
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "calendar-event-del";
+      del.textContent = "×";
+      del.setAttribute("aria-label", "Delete \"" + (task.text || "") + "\"");
+      del.addEventListener("click", () => store.deleteTask(task.id));
+      chip.appendChild(del);
+    } else {
+      const text = document.createElement("span");
+      text.className = "calendar-event-text";
+      text.textContent = task.text || "";
+      chip.appendChild(text);
+
+      const tag = document.createElement("button");
+      tag.type = "button";
+      tag.className = "today-page-tag calendar-event-source";
+      tag.textContent = entry.pageName || "Linked list";
+      tag.title = "Jump to " + (entry.pageName || "that list");
+      tag.addEventListener("click", () => {
+        activePageId = entry.pageId;
+        setStoredActivePage(entry.pageId);
+        render(store.getState());
+      });
+      chip.appendChild(tag);
+    }
+
+    return chip;
+  }
+
+  function renderCalendarGrid(state, page, ownSections, ownTasks) {
+    const view = getCalendarViewMonth(page.id);
+    const year = view.year, month = view.month;
+
+    const linkedIds = Array.isArray(page.linkedListIds) ? page.linkedListIds : [];
+    const linkedPages = linkedIds.map((id) => state.pages.find((p) => p.id === id)).filter(Boolean);
+
+    const byDate = {};
+    ownTasks.filter((t) => t.dueDate).forEach((t) => {
+      (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: true });
+    });
+    linkedPages.forEach((lp) => {
+      state.tasks.filter((t) => t.pageId === lp.id && t.dueDate).forEach((t) => {
+        (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: false, pageName: lp.name || "Untitled", pageId: lp.id });
+      });
+    });
+    Object.keys(byDate).forEach((d) => {
+      byDate[d].sort((a, b) => (a.task.eventTime || "99:99").localeCompare(b.task.eventTime || "99:99"));
+    });
+
+    const container = document.createElement("div");
+    container.className = "calendar-view";
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "calendar-toolbar";
+    const nav = document.createElement("div");
+    nav.className = "calendar-nav";
+
+    const prevBtn = document.createElement("button");
+    prevBtn.type = "button";
+    prevBtn.className = "calendar-nav-btn";
+    prevBtn.textContent = "‹";
+    prevBtn.setAttribute("aria-label", "Previous month");
+    prevBtn.addEventListener("click", () => {
+      let m = month - 1, y = year;
+      if (m < 0) { m = 11; y -= 1; }
+      setCalendarViewMonth(page.id, y, m);
+      render(store.getState());
+    });
+
+    const label = document.createElement("span");
+    label.className = "calendar-month-label";
+    label.textContent = new Date(year, month, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "calendar-nav-btn";
+    nextBtn.textContent = "›";
+    nextBtn.setAttribute("aria-label", "Next month");
+    nextBtn.addEventListener("click", () => {
+      let m = month + 1, y = year;
+      if (m > 11) { m = 0; y += 1; }
+      setCalendarViewMonth(page.id, y, m);
+      render(store.getState());
+    });
+
+    const todayNavBtn = document.createElement("button");
+    todayNavBtn.type = "button";
+    todayNavBtn.className = "secondary-btn";
+    todayNavBtn.textContent = "Today";
+    todayNavBtn.addEventListener("click", () => {
+      const now = new Date();
+      setCalendarViewMonth(page.id, now.getFullYear(), now.getMonth());
+      calendarSelectedDate = todayStr();
+      render(store.getState());
+    });
+
+    nav.appendChild(prevBtn);
+    nav.appendChild(label);
+    nav.appendChild(nextBtn);
+    toolbar.appendChild(nav);
+    toolbar.appendChild(todayNavBtn);
+    container.appendChild(toolbar);
+
+    const form = document.createElement("form");
+    form.className = "calendar-quickadd";
+    const dateInput = document.createElement("input");
+    dateInput.type = "date";
+    dateInput.required = true;
+    dateInput.value = calendarSelectedDate || todayStr();
+    dateInput.setAttribute("aria-label", "Event date");
+    const timeInput = document.createElement("input");
+    timeInput.type = "time";
+    timeInput.setAttribute("aria-label", "Event time (optional)");
+    const textInput = document.createElement("input");
+    textInput.type = "text";
+    textInput.placeholder = "Add an event…";
+    textInput.maxLength = 200;
+    textInput.autocomplete = "off";
+    const addBtn = document.createElement("button");
+    addBtn.type = "submit";
+    addBtn.textContent = "Add";
+    form.appendChild(dateInput);
+    form.appendChild(timeInput);
+    form.appendChild(textInput);
+    form.appendChild(addBtn);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = textInput.value.trim();
+      if (!text || !dateInput.value) return;
+      const section = ownSections[0];
+      if (!section) return;
+      const task = store.addTask(section.id, text);
+      store.updateTask(task.id, { dueDate: dateInput.value, eventTime: timeInput.value || null });
+      calendarSelectedDate = dateInput.value;
+      textInput.value = "";
+      timeInput.value = "";
+      textInput.focus();
+    });
+    container.appendChild(form);
+
+    const grid = document.createElement("div");
+    grid.className = "calendar-grid";
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((wd) => {
+      const h = document.createElement("div");
+      h.className = "calendar-weekday";
+      h.textContent = wd;
+      grid.appendChild(h);
+    });
+
+    const firstOfMonth = new Date(year, month, 1);
+    const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
+    const today = todayStr();
+
+    for (let i = 0; i < 42; i++) {
+      const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      const dateStr = fmtDate(cellDate);
+      const inMonth = cellDate.getMonth() === month;
+
+      const cell = document.createElement("div");
+      cell.className = "calendar-day"
+        + (inMonth ? "" : " outside-month")
+        + (dateStr === today ? " is-today" : "")
+        + (dateStr === calendarSelectedDate ? " is-selected" : "");
+      cell.addEventListener("click", (e) => {
+        if (e.target.closest(".calendar-event-chip")) return;
+        calendarSelectedDate = dateStr;
+        render(store.getState());
+      });
+
+      const num = document.createElement("span");
+      num.className = "calendar-day-number";
+      num.textContent = String(cellDate.getDate());
+      cell.appendChild(num);
+
+      const eventsWrap = document.createElement("div");
+      eventsWrap.className = "calendar-day-events";
+      (byDate[dateStr] || []).forEach((entry) => {
+        eventsWrap.appendChild(buildCalendarEventChip(entry));
+      });
+      cell.appendChild(eventsWrap);
+
+      grid.appendChild(cell);
+    }
+    container.appendChild(grid);
+
+    sectionsEl.appendChild(container);
+  }
+
   function render(state) {
     const page = activePage(state);
     if (!page) { sectionsEl.innerHTML = ""; tabsEl.innerHTML = ""; return; }
@@ -860,6 +1158,7 @@ export function initUI(store, ai) {
 
     const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
     const isGrocery = page.type === "grocery";
+    const isCalendar = page.type === "calendar";
 
     renderTabs(state, page);
 
@@ -867,15 +1166,26 @@ export function initUI(store, ai) {
     deletePageBtn.hidden = state.pages.length <= 1;
     sharePageBtn.textContent = page.sharedPageId ? "\u{1F465} Shared" : "Share list";
     sharePageBtn.classList.toggle("is-shared", !!page.sharedPageId);
+    calendarLinksBtn.hidden = !isCalendar;
 
     newSectionInput.placeholder = labels.addSectionPlaceholder;
     addSectionBtn.textContent = labels.addSectionBtn;
+    addSectionPanel.hidden = isCalendar;
 
     const sections = state.sections.filter((s) => s.pageId === page.id).slice().sort((a, b) => a.order - b.order);
     const tasks = state.tasks.filter((t) => t.pageId === page.id);
 
     sectionsEl.innerHTML = "";
-    reviewBtn.hidden = isGrocery || !ai.isConfigured();
+    reviewBtn.hidden = isGrocery || isCalendar || !ai.isConfigured();
+
+    if (isCalendar) {
+      maybeResolveLinkedLists(page);
+      renderCalendarGrid(state, page, sections, tasks);
+      summaryEl.textContent = "";
+      // Cross-page, so it's recomputed from the whole store on every render.
+      renderTodayPanel(state);
+      return;
+    }
 
     if (sections.length === 0) {
       const empty = document.createElement("div");
@@ -1261,6 +1571,7 @@ export function initUI(store, ai) {
   shareOverlay.addEventListener("click", (e) => { if (e.target === shareOverlay) closeShareModal(); });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !shareOverlay.hidden) closeShareModal();
+    if (e.key === "Escape" && !calendarLinksOverlay.hidden) closeCalendarLinksModal();
   });
 
   shareGenerateBtn.addEventListener("click", async () => {
@@ -1323,6 +1634,131 @@ export function initUI(store, ai) {
       shareLeaveBtn.disabled = false;
     }
   });
+
+  // --- calendar links modal: which to-do/grocery lists feed the active
+  // calendar's grid, and linking a new one (with the "share it with this
+  // calendar's existing members too?" prompt when there's anyone to
+  // share it with). ---
+
+  function renderCalendarLinksModal() {
+    const page = activePage(store.getState());
+    if (!page) return;
+    const state = store.getState();
+    const linkedIds = Array.isArray(page.linkedListIds) ? page.linkedListIds : [];
+    calendarLinksPageName.textContent = page.name || "Untitled";
+
+    calendarLinkedListRows.innerHTML = "";
+    const linkedPages = linkedIds.map((id) => state.pages.find((p) => p.id === id)).filter(Boolean);
+    calendarNoLinks.hidden = linkedPages.length > 0;
+    linkedPages.forEach((lp) => {
+      const row = document.createElement("div");
+      row.className = "today-row";
+      const name = document.createElement("span");
+      name.className = "today-row-text";
+      name.textContent = lp.name || "Untitled";
+      row.appendChild(name);
+      const unlinkBtn = document.createElement("button");
+      unlinkBtn.type = "button";
+      unlinkBtn.className = "section-del";
+      unlinkBtn.textContent = "Unlink";
+      unlinkBtn.addEventListener("click", async () => {
+        unlinkBtn.disabled = true;
+        try {
+          await sync.unlinkListFromCalendar(page.id, lp.id);
+          renderCalendarLinksModal();
+        } catch (e) {
+          calendarLinksStatus.textContent = (e && e.message) || "Couldn't unlink that list.";
+          calendarLinksStatus.className = "settings-status err";
+          unlinkBtn.disabled = false;
+        }
+      });
+      row.appendChild(unlinkBtn);
+      calendarLinkedListRows.appendChild(row);
+    });
+
+    calendarLinkSelect.innerHTML = "";
+    const linkable = state.pages.filter((p) => p.id !== page.id && p.type !== "calendar" && !linkedIds.includes(p.id));
+    linkable.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name || "Untitled";
+      calendarLinkSelect.appendChild(opt);
+    });
+    calendarLinkAddEmpty.hidden = linkable.length > 0;
+    calendarLinkSelect.hidden = linkable.length === 0;
+    calendarLinkAddBtn.hidden = linkable.length === 0;
+
+    calendarSharePrompt.hidden = true;
+    pendingLinkListId = null;
+  }
+
+  async function finishLinkWithShare(shareWithMembers) {
+    const page = activePage(store.getState());
+    if (!page || !pendingLinkListId) return;
+    calendarShareYesBtn.disabled = true;
+    calendarShareNoBtn.disabled = true;
+    try {
+      await sync.linkListToCalendar(page.id, pendingLinkListId, shareWithMembers);
+      renderCalendarLinksModal();
+    } catch (e) {
+      calendarLinksStatus.textContent = (e && e.message) || "Couldn't link that list.";
+      calendarLinksStatus.className = "settings-status err";
+    } finally {
+      calendarShareYesBtn.disabled = false;
+      calendarShareNoBtn.disabled = false;
+    }
+  }
+
+  function openCalendarLinksModal() {
+    const page = activePage(store.getState());
+    if (!page) return;
+    calendarLinksStatus.textContent = "";
+    calendarLinksStatus.className = "settings-status";
+    renderCalendarLinksModal();
+    calendarLinksOverlay.hidden = false;
+  }
+
+  function closeCalendarLinksModal() {
+    calendarLinksOverlay.hidden = true;
+    pendingLinkListId = null;
+  }
+
+  calendarLinksBtn.addEventListener("click", openCalendarLinksModal);
+  calendarLinksClose.addEventListener("click", closeCalendarLinksModal);
+  calendarLinksDoneBtn.addEventListener("click", closeCalendarLinksModal);
+  calendarLinksOverlay.addEventListener("click", (e) => { if (e.target === calendarLinksOverlay) closeCalendarLinksModal(); });
+
+  calendarLinkAddBtn.addEventListener("click", async () => {
+    const page = activePage(store.getState());
+    if (!page) return;
+    const listId = calendarLinkSelect.value;
+    if (!listId) return;
+    calendarLinkAddBtn.disabled = true;
+    calendarLinksStatus.textContent = "";
+    calendarLinksStatus.className = "settings-status";
+    try {
+      const others = await sync.getCalendarOtherMembers(page.id);
+      if (others.length > 0) {
+        const listPage = store.getState().pages.find((p) => p.id === listId);
+        pendingLinkListId = listId;
+        calendarSharePromptText.textContent = "This calendar is shared with "
+          + others.map((m) => m.email).join(", ")
+          + ". Share “" + (listPage ? (listPage.name || "this list") : "this list") + "” with them too?";
+        calendarSharePrompt.hidden = false;
+      } else {
+        await sync.linkListToCalendar(page.id, listId, false);
+        renderCalendarLinksModal();
+      }
+    } catch (e) {
+      calendarLinksStatus.textContent = (e && e.message) || "Couldn't link that list.";
+      calendarLinksStatus.className = "settings-status err";
+    } finally {
+      calendarLinkAddBtn.disabled = false;
+    }
+  });
+
+  calendarShareYesBtn.addEventListener("click", () => finishLinkWithShare(true));
+  calendarShareNoBtn.addEventListener("click", () => finishLinkWithShare(false));
 
   addSectionBtn.addEventListener("click", () => {
     const name = newSectionInput.value.trim();

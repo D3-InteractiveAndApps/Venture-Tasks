@@ -18,6 +18,7 @@
       <div class="page-title-row">
         <h1 class="page-title-wrap"><input id="page-title" type="text" class="page-title" maxlength="60" aria-label="Page title" /></h1>
         <button id="share-page-btn" type="button" class="secondary-btn share-page-btn">Share list</button>
+        <button id="calendar-links-btn" type="button" class="secondary-btn" hidden>Linked lists</button>
         <button id="delete-page-btn" type="button" class="section-del page-del" hidden>Delete page</button>
       </div>
     </div>
@@ -30,6 +31,7 @@
     <select id="new-page-type">
       <option value="tasks">To-do list</option>
       <option value="grocery">Grocery list</option>
+      <option value="calendar">Family calendar</option>
     </select>
     <button id="add-page-confirm" type="button" class="primary-btn">Add page</button>
     <button id="add-page-cancel" type="button" class="secondary-btn">Cancel</button>
@@ -63,7 +65,7 @@
 
   <div class="sections" id="sections"></div>
 
-  <div class="panel add-section">
+  <div class="panel add-section" id="add-section-panel">
     <input id="new-section" type="text" placeholder="Add a section&hellip; (e.g. a new business or project)" autocomplete="off" maxlength="80" />
     <button id="add-section-btn" type="button">Add section</button>
   </div>
@@ -284,6 +286,52 @@
 
     <div class="modal-foot">
       <button id="share-done-btn" type="button" class="primary-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="calendar-links-overlay" hidden>
+  <div class="modal" id="calendar-links-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-links-title">
+    <div class="modal-head">
+      <h2 id="calendar-links-title">Linked lists for &ldquo;<span id="calendar-links-page-name"></span>&rdquo;</h2>
+      <button id="calendar-links-close" type="button" class="del-btn" aria-label="Close linked lists">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <section class="settings-section">
+        <p class="settings-help">
+          Due dates from a linked to-do or grocery list show up on this calendar&rsquo;s grid
+          alongside its own events &mdash; link any list here, any time, even one that isn&rsquo;t
+          shared with anyone else.
+        </p>
+        <div id="calendar-linked-list-rows"></div>
+        <p class="settings-help" id="calendar-no-links" hidden>No lists linked yet.</p>
+      </section>
+
+      <section class="settings-section">
+        <label class="field">
+          <span class="field-label">Link a list</span>
+          <select id="calendar-link-select"></select>
+        </label>
+        <div class="settings-actions">
+          <button id="calendar-link-add-btn" type="button" class="secondary-btn">Link</button>
+        </div>
+        <p class="settings-help" id="calendar-link-add-empty" hidden>Every other list is already linked (or there isn&rsquo;t another one yet).</p>
+      </section>
+
+      <section class="settings-section" id="calendar-share-prompt" hidden>
+        <p class="settings-help" id="calendar-share-prompt-text"></p>
+        <div class="settings-actions">
+          <button id="calendar-share-yes-btn" type="button" class="primary-btn">Share it with them</button>
+          <button id="calendar-share-no-btn" type="button" class="secondary-btn">Just for me</button>
+        </div>
+      </section>
+
+      <p class="settings-status" id="calendar-links-status" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="modal-foot">
+      <button id="calendar-links-done-btn" type="button" class="primary-btn">Done</button>
     </div>
   </div>
 </div>

@@ -4,12 +4,16 @@
 // sync.js). A simple pub/sub lets app.js re-render whenever data changes.
 //
 // Data shape:
-//   state.pages    — top-level tabs: { id, name, type: "tasks"|"grocery", order, createdAt,
-//                     sharedPageId, shareRole: null|"owner"|"editor" }
+//   state.pages    — top-level tabs: { id, name, type: "tasks"|"grocery"|"calendar", order,
+//                     createdAt, sharedPageId, shareRole: null|"owner"|"editor",
+//                     linkedListIds: [] — calendar pages only; other to-do/grocery
+//                     pages whose due-dated tasks also show on this calendar's grid }
 //   state.sections — belong to a page: { id, pageId, name, order, color, createdAt }
 //   state.tasks    — belong to a section: { id, pageId, sectionId, text, done, order,
-//                     color, dueDate, recurrence, isSomeday, client, value,
+//                     color, dueDate, eventTime, recurrence, isSomeday, client, value,
 //                     createdAt, updatedAt, completedAt }
+//   (eventTime is a plain "HH:MM" string or null — only ever set on a calendar
+//   page's own events, via its quick-add form; everywhere else it's unused.)
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
@@ -81,14 +85,22 @@ function normalizeState(raw) {
   if (pages.length === 0) {
     // Old (pre-pages) data, or a brand-new empty store: give everything a
     // single default page so existing sections/tasks aren't orphaned.
-    const defaultPage = { id: uid(), name: DEFAULT_PAGE_NAME, type: "tasks", order: 1, sharedPageId: null, shareRole: null, createdAt: nowIso() };
+    const defaultPage = { id: uid(), name: DEFAULT_PAGE_NAME, type: "tasks", order: 1, sharedPageId: null, shareRole: null, linkedListIds: [], createdAt: nowIso() };
     pages = [defaultPage];
     sections = sections.map((s) => (s.pageId ? s : Object.assign({}, s, { pageId: defaultPage.id })));
   } else {
-    pages = pages.map((p, i) => Object.assign({ type: "tasks", order: i + 1, sharedPageId: null, shareRole: null }, p));
+    pages = pages.map((p, i) => Object.assign({ type: "tasks", order: i + 1, sharedPageId: null, shareRole: null, linkedListIds: [] }, p));
     const fallbackPageId = pages[0].id;
     sections = sections.map((s) => (s.pageId ? s : Object.assign({}, s, { pageId: fallbackPageId })));
   }
+
+  // Guard against anything (an older export, a hand-edited import) that
+  // has these keys present but malformed, rather than just missing —
+  // downstream code assumes linkedListIds is always a real array.
+  pages = pages.map((p) => Object.assign({}, p, {
+    type: p.type === "grocery" || p.type === "calendar" ? p.type : "tasks",
+    linkedListIds: Array.isArray(p.linkedListIds) ? p.linkedListIds : []
+  }));
 
   const sectionPageMap = {};
   sections.forEach((s) => { sectionPageMap[s.id] = s.pageId; });
@@ -176,7 +188,7 @@ export const store = {
   // duplicate clutter.
   addPage(name, type, seedDefaults) {
     pushUndo();
-    const pageType = type === "grocery" ? "grocery" : "tasks";
+    const pageType = type === "grocery" ? "grocery" : type === "calendar" ? "calendar" : "tasks";
     const page = {
       id: uid(),
       name: (name || "Untitled").trim() || "Untitled",
@@ -184,6 +196,7 @@ export const store = {
       order: state.pages.reduce((max, p) => Math.max(max, p.order || 0), 0) + 1,
       sharedPageId: null,
       shareRole: null,
+      linkedListIds: [],
       createdAt: nowIso()
     };
     state.pages.push(page);
@@ -200,9 +213,55 @@ export const store = {
           createdAt: nowIso()
         });
       });
+    } else if (pageType === "calendar" && seedDefaults !== false) {
+      // A calendar page's events all live in one implicit section — the
+      // UI never shows "sections" for a calendar page, this just reuses
+      // the existing section/task plumbing instead of building a parallel
+      // one for events.
+      state.sections.push({
+        id: uid(),
+        pageId: page.id,
+        name: "Events",
+        order: 1,
+        color: SECTION_PALETTE[0],
+        createdAt: nowIso()
+      });
     }
     persist();
     return page;
+  },
+
+  // --- calendar pages: linking to-do/grocery lists so their due dates
+  // show up on the grid too (see sync.js for how this propagates to a
+  // SHARED calendar's other members) ---
+  linkListToCalendar(calendarPageId, listPageId) {
+    const p = findPage(calendarPageId);
+    if (!p || p.type !== "calendar") return;
+    if (!Array.isArray(p.linkedListIds)) p.linkedListIds = [];
+    if (p.linkedListIds.includes(listPageId)) return;
+    pushUndo();
+    p.linkedListIds = p.linkedListIds.concat([listPageId]);
+    persist();
+  },
+
+  unlinkListFromCalendar(calendarPageId, listPageId) {
+    const p = findPage(calendarPageId);
+    if (!p || p.type !== "calendar") return;
+    pushUndo();
+    p.linkedListIds = (p.linkedListIds || []).filter((id) => id !== listPageId);
+    persist();
+  },
+
+  // Remote-originated: overwrites a calendar's linked-list set with what
+  // was just resolved from the server (a shared calendar's
+  // linked_shared_page_ids, translated to local page ids) or with a
+  // locally-computed set. Not undoable, like the other remote-apply
+  // methods above.
+  setLinkedLists(calendarPageId, localPageIds) {
+    const p = findPage(calendarPageId);
+    if (!p) return;
+    p.linkedListIds = Array.isArray(localPageIds) ? localPageIds.slice() : [];
+    persist();
   },
 
   renamePage(id, name) {
@@ -294,6 +353,7 @@ export const store = {
       order: Date.now(),
       color: null,
       dueDate: null,
+      eventTime: null,
       recurrence: null,
       isSomeday: false,
       client: null,
@@ -341,6 +401,7 @@ export const store = {
         order: Date.now(),
         color: t.color || null,
         dueDate: advanceDate(t.dueDate, t.recurrence),
+        eventTime: t.eventTime || null,
         recurrence: t.recurrence,
         isSomeday: !!t.isSomeday,
         client: t.client || null,

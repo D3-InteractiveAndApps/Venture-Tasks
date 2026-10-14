@@ -21,6 +21,27 @@ function icsDateOnly(dueStr) {
   return (dueStr || "").replace(/-/g, "");
 }
 
+// A due date with no time (the common case, and the only case outside
+// calendar pages) is an all-day VALUE=DATE event. A calendar page's event
+// CAN also carry an optional "HH:MM" eventTime (see family-calendar-
+// schema.sql) — when it does, this builds a floating (no-timezone)
+// local date+time instead, same philosophy as dueDate/eventTime
+// themselves: no time zone math, just what the person typed, left for
+// the calendar app to interpret in whichever zone it's already in.
+function icsLocalDateTime(dueStr, timeStr) {
+  const parts = (timeStr || "").split(":");
+  const h = parseInt(parts[0], 10) || 0;
+  const m = parseInt(parts[1], 10) || 0;
+  const d = new Date((dueStr || "") + "T00:00:00");
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
+function fmtIcsLocal(d) {
+  return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate())
+    + "T" + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+}
+
 // Escapes text per RFC 5545 §3.3.11 (backslash, semicolon, comma, newline) —
 // order matters, the backslash escape has to go first.
 function escapeText(s) {
@@ -80,7 +101,14 @@ export function buildIcsCalendar(pages, sections, tasks) {
       lines.push("BEGIN:VEVENT");
       lines.push(foldLine("UID:" + t.id + "@venture-tasks"));
       lines.push("DTSTAMP:" + stamp);
-      lines.push("DTSTART;VALUE=DATE:" + icsDateOnly(t.dueDate));
+      if (t.eventTime) {
+        const start = icsLocalDateTime(t.dueDate, t.eventTime);
+        const end = new Date(start.getTime() + 60 * 60 * 1000); // default 1hr duration — there's no end time to go on
+        lines.push("DTSTART:" + fmtIcsLocal(start));
+        lines.push("DTEND:" + fmtIcsLocal(end));
+      } else {
+        lines.push("DTSTART;VALUE=DATE:" + icsDateOnly(t.dueDate));
+      }
       lines.push(foldLine("SUMMARY:" + escapeText(t.text || "Untitled task")));
       if (descParts.length) lines.push(foldLine("DESCRIPTION:" + escapeText(descParts.join(" · "))));
       lines.push("END:VEVENT");
