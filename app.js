@@ -17,6 +17,14 @@ initSettings(store, ai, () => uiApi.refresh());
 initSync(store);
 initUndo(store);
 
+// Daily tasks (see store.js) reset themselves back to undone once the
+// calendar day they were completed on has passed. The module-load check
+// in store.js already covers "the app was closed overnight" — this covers
+// "the app was left open across midnight," by re-checking on an interval
+// cheap enough to just leave running. 60s is plenty; it's a no-op scan
+// unless the date has actually changed.
+setInterval(() => store.checkDailyReset(), 60 * 1000);
+
 // Offline use + "add to home screen" support. Safe to skip silently if
 // unavailable (older browsers, or the site served over plain http://).
 if ("serviceWorker" in navigator) {

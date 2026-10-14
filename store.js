@@ -10,14 +10,21 @@
 //                     pages whose due-dated tasks also show on this calendar's grid }
 //   state.sections — belong to a page: { id, pageId, name, order, color, createdAt }
 //   state.tasks    — belong to a section: { id, pageId, sectionId, text, done, order,
-//                     color, dueDate, eventTime, recurrence, isSomeday, client, value,
-//                     createdAt, updatedAt, completedAt }
+//                     color, dueDate, eventTime, recurrence, isSomeday, isDaily, client,
+//                     value, createdAt, updatedAt, completedAt }
 //   (eventTime is a plain "HH:MM" string or null — only ever set on a calendar
 //   page's own events, via its quick-add form; everywhere else it's unused.)
+//   (isDaily marks a "Daily task" — a single persistent row meant to be
+//   checked off once per calendar day, e.g. a daily-posting habit. Unlike
+//   recurrence, which spawns a brand-new row each time one's completed,
+//   a daily task just resets ITSELF back to undone once the day rolls
+//   over — see resetDailyTasks() below. The two are mutually exclusive on
+//   any one task; the UI enforces that by clearing whichever one the user
+//   isn't actively setting.)
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
-import { advanceDate } from "./dates.js";
+import { advanceDate, todayStr } from "./dates.js";
 
 const DATA_KEY = "ventureTasks:data:v1";
 const SETTINGS_KEY = "ventureTasks:settings:v1";
@@ -110,12 +117,42 @@ function normalizeState(raw) {
   return { pages, sections, tasks };
 }
 
+function dateOnly(iso) {
+  return iso ? iso.slice(0, 10) : null;
+}
+
+// A daily task (isDaily: true) that's still marked done from a PREVIOUS
+// calendar day gets flipped back to undone, in place — no new row, unlike
+// a recurring task's spawn-on-complete. Comparing against completedAt's
+// own date (not some separately-stored "last reset" timestamp) means this
+// is naturally idempotent and needs no extra state: run it as often as
+// you like, it's a no-op once every daily task is already caught up for
+// today. Returns whether anything actually changed, so callers can skip
+// persisting/notifying on the (overwhelmingly common) no-op case.
+function resetDailyTasks() {
+  const today = todayStr();
+  let changed = false;
+  state.tasks.forEach((t) => {
+    if (t.isDaily && t.done && dateOnly(t.completedAt) !== today) {
+      t.done = false;
+      t.completedAt = null;
+      t.updatedAt = nowIso();
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 const rawLoadedData = readJson(DATA_KEY, defaultData());
 let state = normalizeState(rawLoadedData);
 // If this was old (pre-pages) or otherwise not-current-shape data, write the
 // migrated shape straight back so localStorage, export, and sync all reflect
-// it immediately rather than only after the user's next edit.
-if (JSON.stringify(rawLoadedData) !== JSON.stringify(state)) writeJson(DATA_KEY, state);
+// it immediately rather than only after the user's next edit. Also catch up
+// any daily tasks left checked from a previous day (the app may have been
+// closed when that day rolled over) in the same write.
+const migratedOnLoad = JSON.stringify(rawLoadedData) !== JSON.stringify(state);
+const dailyResetOnLoad = resetDailyTasks();
+if (migratedOnLoad || dailyResetOnLoad) writeJson(DATA_KEY, state);
 
 let settings = readJson(SETTINGS_KEY, { provider: "none", apiKey: "", model: "", font: "default", theme: {} });
 if (!settings.theme || typeof settings.theme !== "object") settings.theme = {};
@@ -179,6 +216,16 @@ export const store = {
     state = prev;
     persist();
     return true;
+  },
+
+  // Called once at load (above) and again periodically while the app
+  // stays open (see app.js) so a daily task left checked from a previous
+  // day resets even if the browser tab was never closed across midnight.
+  // Deliberately NOT pushed to the undo stack — this is automatic
+  // day-rollover housekeeping, not something the user just did, so
+  // Ctrl+Z shouldn't be able to "undo" a day actually passing.
+  checkDailyReset() {
+    if (resetDailyTasks()) persist();
   },
 
   // --- pages ---
@@ -356,6 +403,7 @@ export const store = {
       eventTime: null,
       recurrence: null,
       isSomeday: false,
+      isDaily: false,
       client: null,
       value: null,
       createdAt: nowIso(),
@@ -391,7 +439,16 @@ export const store = {
     t.done = next;
     t.completedAt = next ? nowIso() : null;
     t.updatedAt = nowIso();
-    if (next && t.recurrence) {
+    // A daily task resets itself in place (see resetDailyTasks) — it never
+    // spawns a new row the way a recurring task does, even if `recurrence`
+    // somehow ended up set alongside it. A recurring CALENDAR event also
+    // doesn't spawn: ui.js's renderCalendarGrid already projects every
+    // future occurrence of it straight onto the visible month grid as a
+    // read-only "virtual" chip (see projectOccurrences there), so spawning
+    // a second real row here on top of that would just duplicate it.
+    const ownerPage = findPage(t.pageId);
+    const isCalendarEvent = ownerPage && ownerPage.type === "calendar";
+    if (next && t.recurrence && !t.isDaily && !isCalendarEvent) {
       state.tasks.push({
         id: uid(),
         text: t.text,

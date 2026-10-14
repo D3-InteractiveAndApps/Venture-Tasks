@@ -5,7 +5,7 @@
 
 import {
   STALE_DAYS, daysUntil, daysSince, activityText,
-  dueBadgeInfo, recurrenceValue, recurrenceFromValue, fmtDate, todayStr
+  dueBadgeInfo, recurrenceValue, recurrenceFromValue, recurrenceLabel, advanceDate, fmtDate, todayStr
 } from "./dates.js";
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
 import { getHolidaysForYears } from "./holidays.js";
@@ -99,6 +99,7 @@ export function initUI(store, ai) {
   const newSectionInput = document.getElementById("new-section");
   const addSectionBtn = document.getElementById("add-section-btn");
   const hideDoneBtn = document.getElementById("hide-done-btn");
+  const collapseAllBtn = document.getElementById("collapse-all-btn");
   const reviewBtn = document.getElementById("review-btn");
   const reviewPanel = document.getElementById("review-panel");
   const reviewBody = document.getElementById("review-body");
@@ -627,10 +628,18 @@ export function initUI(store, ai) {
       if (task.recurrence) {
         const recurBadge = document.createElement("span");
         recurBadge.className = "recur-badge";
-        recurBadge.title = "Repeats";
+        recurBadge.title = recurrenceLabel(task.recurrence) || "Repeats";
         recurBadge.setAttribute("aria-label", "Repeating task");
         recurBadge.textContent = "↻";
         row.appendChild(recurBadge);
+      }
+      if (task.isDaily) {
+        const dailyBadge = document.createElement("span");
+        dailyBadge.className = "recur-badge daily-badge";
+        dailyBadge.title = "Daily task — resets automatically each day";
+        dailyBadge.setAttribute("aria-label", "Daily task");
+        dailyBadge.textContent = "☀";
+        row.appendChild(dailyBadge);
       }
       appendClientValueBadges(row, task);
     } else if (otherSections.length) {
@@ -707,15 +716,37 @@ export function initUI(store, ai) {
     const recurLabel = document.createElement("span");
     recurLabel.className = "detail-label";
     recurLabel.textContent = "Repeat";
+    const RECUR_OPTIONS = [
+      ["none", "Doesn't repeat"],
+      ["daily", "Every day"],
+      ["weekdays", "Every weekday (Mon–Fri)"],
+      ["weekend", "Weekends (Sat–Sun)"],
+      ["weekly", "Weekly"],
+      ["monthly", "Monthly"],
+      ["custom", "Custom days…"]
+    ];
     const recurSelect = document.createElement("select");
-    ["none", "daily", "weekly", "monthly"].forEach((v) => {
+    RECUR_OPTIONS.forEach(([v, label]) => {
       const opt = document.createElement("option");
       opt.value = v;
-      opt.textContent = v === "none" ? "Doesn't repeat" : v[0].toUpperCase() + v.slice(1);
+      opt.textContent = label;
       recurSelect.appendChild(opt);
     });
     recurSelect.value = recurrenceValue(task.recurrence);
-    recurSelect.addEventListener("change", () => store.updateTask(task.id, { recurrence: recurrenceFromValue(recurSelect.value) }));
+    recurSelect.addEventListener("change", () => {
+      const val = recurSelect.value;
+      // Switching TO "custom" keeps whatever specific days were already
+      // chosen last time (if any) rather than wiping them back to none —
+      // the checkbox row below re-reads task.recurrence.days on its own
+      // next render, same as everything else in this panel.
+      const existingCustomDays = (task.recurrence && task.recurrence.unit === "custom" && Array.isArray(task.recurrence.days)) ? task.recurrence.days : [];
+      const recurrence = val === "custom" ? recurrenceFromValue(val, existingCustomDays) : recurrenceFromValue(val);
+      // A recurring task spawns a fresh row each time it's completed — a
+      // "Daily task" instead resets the SAME row in place (see the Daily
+      // field below). Mixing the two mechanics on one task would be
+      // ambiguous, so picking a real repeat option here turns Daily off.
+      store.updateTask(task.id, recurrence ? { recurrence, isDaily: false } : { recurrence });
+    });
     recurField.appendChild(recurLabel);
     recurField.appendChild(recurSelect);
 
@@ -728,9 +759,27 @@ export function initUI(store, ai) {
     somedayField.appendChild(somedayCheck);
     somedayField.appendChild(document.createTextNode("Someday / low priority"));
 
+    // "Daily task": a single persistent row meant to be checked off once
+    // per calendar day — e.g. a daily posting habit. Unlike Repeat above,
+    // completing it does NOT spawn a new row; it just quietly flips back
+    // to unchecked once the day rolls over (see store.js's
+    // resetDailyTasks), ready to check off again tomorrow.
+    const dailyField = document.createElement("label");
+    dailyField.className = "someday-field daily-field";
+    const dailyCheck = document.createElement("input");
+    dailyCheck.type = "checkbox";
+    dailyCheck.checked = !!task.isDaily;
+    dailyCheck.addEventListener("change", () => {
+      const isDaily = dailyCheck.checked;
+      store.updateTask(task.id, isDaily ? { isDaily: true, recurrence: null } : { isDaily: false });
+    });
+    dailyField.appendChild(dailyCheck);
+    dailyField.appendChild(document.createTextNode("Daily task (resets each day)"));
+
     controls.appendChild(dueField);
     controls.appendChild(recurField);
     controls.appendChild(somedayField);
+    controls.appendChild(dailyField);
 
     if (otherSections.length) {
       const moveField = document.createElement("div");
@@ -759,6 +808,41 @@ export function initUI(store, ai) {
     }
 
     panel.appendChild(controls);
+
+    // "Custom days" repeat row — a little checkbox-per-weekday picker,
+    // only shown when Repeat is actually set to "custom" (e.g. "every
+    // Monday and Thursday"). Kept as its own row below the main controls
+    // rather than crammed into recurField itself, since seven checkboxes
+    // don't fit next to a <select> without wrapping awkwardly.
+    const customDaysRow = document.createElement("div");
+    customDaysRow.className = "detail-row custom-days-row";
+    customDaysRow.hidden = recurrenceValue(task.recurrence) !== "custom";
+    const customDaysLabel = document.createElement("span");
+    customDaysLabel.className = "detail-label";
+    customDaysLabel.textContent = "Which days";
+    customDaysRow.appendChild(customDaysLabel);
+    const selectedCustomDays = (task.recurrence && task.recurrence.unit === "custom" && Array.isArray(task.recurrence.days)) ? task.recurrence.days : [];
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((dayName, dayIndex) => {
+      const dayField = document.createElement("label");
+      dayField.className = "custom-day-check";
+      const dayCheck = document.createElement("input");
+      dayCheck.type = "checkbox";
+      dayCheck.checked = selectedCustomDays.includes(dayIndex);
+      dayCheck.addEventListener("change", () => {
+        // Each checkbox's position in the row IS its weekday index (0=Sun
+        // through 6=Sat — the same order they were created in above), so
+        // reading all seven back by index is enough to rebuild the set.
+        const nowChecked = Array.from(customDaysRow.querySelectorAll('input[type="checkbox"]'))
+          .map((el, i) => (el.checked ? i : -1))
+          .filter((i) => i !== -1);
+        store.updateTask(task.id, { recurrence: recurrenceFromValue("custom", nowChecked), isDaily: false });
+      });
+      dayField.appendChild(dayCheck);
+      dayField.appendChild(document.createTextNode(dayName));
+      customDaysRow.appendChild(dayField);
+    });
+    recurSelect.addEventListener("change", () => { customDaysRow.hidden = recurSelect.value !== "custom"; });
+    panel.appendChild(customDaysRow);
 
     // A second row, kept separate from due/repeat/someday/move above so it
     // doesn't get too crowded — client + dollar value, both optional, for
@@ -1018,14 +1102,26 @@ export function initUI(store, ai) {
   function buildCalendarEventChip(entry) {
     const task = entry.task;
     const chip = document.createElement("div");
-    chip.className = "calendar-event-chip" + (task.done ? " is-done" : "");
+    chip.className = "calendar-event-chip" + (task.done ? " is-done" : "") + (entry.virtual ? " is-virtual" : "");
 
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.checked = !!task.done;
-    check.setAttribute("aria-label", "Mark \"" + (task.text || "") + "\" done");
-    check.addEventListener("change", () => store.toggleTaskDone(task.id));
-    chip.appendChild(check);
+    if (entry.virtual) {
+      // A projected occurrence of a recurring event — there's no real task
+      // behind THIS date, just the one anchor row the recurrence was set
+      // on, so there's nothing here to check off, retype, or delete. A
+      // small recurring glyph stands in for the checkbox instead.
+      const recurGlyph = document.createElement("span");
+      recurGlyph.className = "calendar-event-recur-glyph";
+      recurGlyph.textContent = "↻";
+      recurGlyph.title = "Repeating occurrence — edit or complete it from " + task.dueDate;
+      chip.appendChild(recurGlyph);
+    } else {
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.checked = !!task.done;
+      check.setAttribute("aria-label", "Mark \"" + (task.text || "") + "\" done");
+      check.addEventListener("change", () => store.toggleTaskDone(task.id));
+      chip.appendChild(check);
+    }
 
     if (task.eventTime) {
       const time = document.createElement("span");
@@ -1065,17 +1161,23 @@ export function initUI(store, ai) {
       text.textContent = task.text || "";
       chip.appendChild(text);
 
-      const tag = document.createElement("button");
-      tag.type = "button";
-      tag.className = "today-page-tag calendar-event-source";
-      tag.textContent = entry.pageName || "Linked list";
-      tag.title = "Jump to " + (entry.pageName || "that list");
-      tag.addEventListener("click", () => {
-        activePageId = entry.pageId;
-        setStoredActivePage(entry.pageId);
-        render(store.getState());
-      });
-      chip.appendChild(tag);
+      // The jump-to-source tag only makes sense for an entry actually
+      // pulled in from a linked list (entry.pageName set) — a virtual
+      // projection of one of THIS calendar's own recurring events has
+      // nowhere else to jump to.
+      if (entry.pageName) {
+        const tag = document.createElement("button");
+        tag.type = "button";
+        tag.className = "today-page-tag calendar-event-source";
+        tag.textContent = entry.pageName;
+        tag.title = "Jump to " + entry.pageName;
+        tag.addEventListener("click", () => {
+          activePageId = entry.pageId;
+          setStoredActivePage(entry.pageId);
+          render(store.getState());
+        });
+        chip.appendChild(tag);
+      }
     }
 
     return chip;
@@ -1114,6 +1216,18 @@ export function initUI(store, ai) {
     const linkedIds = Array.isArray(page.linkedListIds) ? page.linkedListIds : [];
     const linkedPages = linkedIds.map((id) => state.pages.find((p) => p.id === id)).filter(Boolean);
 
+    // Needed up here (rather than down with the rest of the grid-drawing
+    // code below) because the recurrence-projection pass right below also
+    // needs to know the visible date window — a recurring event only ever
+    // gets virtual occurrences projected within the month actually on
+    // screen, not forever into the future.
+    const firstOfMonth = new Date(year, month, 1);
+    const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
+    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 41);
+    const gridStartStr = fmtDate(gridStart);
+    const gridEndStr = fmtDate(gridEnd);
+    const today = todayStr();
+
     const byDate = {};
     ownTasks.filter((t) => t.dueDate).forEach((t) => {
       (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: true });
@@ -1123,6 +1237,37 @@ export function initUI(store, ai) {
         (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: false, pageName: lp.name || "Untitled", pageId: lp.id });
       });
     });
+
+    // Recurring calendar events (and recurring tasks pulled in from a
+    // linked list) get virtual occurrences projected onto every other
+    // matching date in the visible grid, in addition to their one real
+    // "anchor" row — e.g. a weekly "Trash day" event shows on every
+    // Tuesday of the month, not just the Tuesday it was created on. These
+    // projections are display-only: there's no real task behind them, so
+    // buildCalendarEventChip (via entry.editable === false) renders them
+    // with no checkbox/edit/delete — completing or editing the event only
+    // ever happens from its anchor date's own chip. The 400-step cap is
+    // just a safety backstop against a degenerate recurrence (e.g.
+    // "custom" with no days picked, which never actually advances) —
+    // ordinary patterns hit the grid's edge long before that.
+    function projectOccurrences(t, pageName, pageId) {
+      if (!t.recurrence || !t.dueDate) return;
+      let cursor = t.dueDate;
+      for (let i = 0; i < 400; i++) {
+        const next = advanceDate(cursor, t.recurrence);
+        if (next === cursor) return; // degenerate recurrence — nothing to advance to
+        cursor = next;
+        if (cursor > gridEndStr) return;
+        const entry = { task: t, editable: false, virtual: true };
+        if (pageName) { entry.pageName = pageName; entry.pageId = pageId; }
+        (byDate[cursor] = byDate[cursor] || []).push(entry);
+      }
+    }
+    ownTasks.filter((t) => t.dueDate && t.recurrence).forEach((t) => projectOccurrences(t, null, null));
+    linkedPages.forEach((lp) => {
+      state.tasks.filter((t) => t.pageId === lp.id && t.dueDate && t.recurrence).forEach((t) => projectOccurrences(t, lp.name || "Untitled", lp.id));
+    });
+
     Object.keys(byDate).forEach((d) => {
       byDate[d].sort((a, b) => (a.task.eventTime || "99:99").localeCompare(b.task.eventTime || "99:99"));
     });
@@ -1196,24 +1341,75 @@ export function initUI(store, ai) {
     textInput.placeholder = "Add an event…";
     textInput.maxLength = 200;
     textInput.autocomplete = "off";
+
+    // "Reoccurring task" for calendar events — same recurrence vocabulary
+    // as the to-do list's Repeat field (see buildTaskDetailsPanel), reused
+    // here rather than reinvented: every day, every weekday, weekends
+    // only, weekly, monthly, or specific custom days.
+    const recurSelect = document.createElement("select");
+    recurSelect.className = "calendar-quickadd-recur";
+    recurSelect.setAttribute("aria-label", "Repeat");
+    [
+      ["none", "Doesn't repeat"],
+      ["daily", "Every day"],
+      ["weekdays", "Every weekday (Mon–Fri)"],
+      ["weekend", "Weekends (Sat–Sun)"],
+      ["weekly", "Weekly"],
+      ["monthly", "Monthly"],
+      ["custom", "Custom days…"]
+    ].forEach(([v, lbl]) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = lbl;
+      recurSelect.appendChild(opt);
+    });
+
+    const customDaysRow = document.createElement("div");
+    customDaysRow.className = "calendar-quickadd-custom-days";
+    customDaysRow.hidden = true;
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((dayName) => {
+      const dayField = document.createElement("label");
+      dayField.className = "custom-day-check";
+      const dayCheck = document.createElement("input");
+      dayCheck.type = "checkbox";
+      dayField.appendChild(dayCheck);
+      dayField.appendChild(document.createTextNode(dayName));
+      customDaysRow.appendChild(dayField);
+    });
+    recurSelect.addEventListener("change", () => { customDaysRow.hidden = recurSelect.value !== "custom"; });
+
     const addBtn = document.createElement("button");
     addBtn.type = "submit";
     addBtn.textContent = "Add";
     form.appendChild(dateInput);
     form.appendChild(timeInput);
     form.appendChild(textInput);
+    form.appendChild(recurSelect);
     form.appendChild(addBtn);
+    form.appendChild(customDaysRow);
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       const text = textInput.value.trim();
       if (!text || !dateInput.value) return;
       const section = ownSections[0];
       if (!section) return;
+      let recurrence;
+      if (recurSelect.value === "custom") {
+        const chosenDays = Array.from(customDaysRow.querySelectorAll('input[type="checkbox"]'))
+          .map((el, i) => (el.checked ? i : -1))
+          .filter((i) => i !== -1);
+        recurrence = recurrenceFromValue("custom", chosenDays);
+      } else {
+        recurrence = recurrenceFromValue(recurSelect.value);
+      }
       const task = store.addTask(section.id, text);
-      store.updateTask(task.id, { dueDate: dateInput.value, eventTime: timeInput.value || null });
+      store.updateTask(task.id, { dueDate: dateInput.value, eventTime: timeInput.value || null, recurrence });
       calendarSelectedDate = dateInput.value;
       textInput.value = "";
       timeInput.value = "";
+      recurSelect.value = "none";
+      customDaysRow.hidden = true;
+      customDaysRow.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
       textInput.focus();
     });
     container.appendChild(form);
@@ -1226,11 +1422,6 @@ export function initUI(store, ai) {
       h.textContent = wd;
       grid.appendChild(h);
     });
-
-    const firstOfMonth = new Date(year, month, 1);
-    const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
-    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 41);
-    const today = todayStr();
 
     // A 42-cell grid can show trailing/leading days from the previous or
     // next year (e.g. viewing January shows late-December cells) — so
@@ -1263,7 +1454,7 @@ export function initUI(store, ai) {
         + (dateStr === calendarSelectedDate ? " is-selected" : "")
         + (holidayName ? " has-holiday" : "");
       cell.addEventListener("click", (e) => {
-        if (e.target.closest(".calendar-event-chip") || e.target.closest(".calendar-holiday-label")) return;
+        if (e.target.closest(".calendar-event-chip") || e.target.closest(".calendar-holiday-label") || e.target.closest(".calendar-day-view")) return;
         calendarSelectedDate = dateStr;
         render(store.getState());
       });
@@ -1318,6 +1509,28 @@ export function initUI(store, ai) {
       }
       cell.appendChild(eventsWrap);
 
+      // Overflow days already get a "+N more" button that opens the day
+      // popup, but a day with just one or two events — under the cap —
+      // had NO way to open it at all; the only way to see day detail was
+      // via a holiday label or the overflow button, neither of which a
+      // light day has. Add a small always-there "view" affordance (styled
+      // to stay out of the way, not steal attention from the chips
+      // themselves) whenever there's at least one event and it still fits
+      // in the cell without overflowing.
+      if (dayEntries.length > 0 && !hasOverflow) {
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.className = "calendar-day-view";
+        viewBtn.textContent = "\u{1F441}️";
+        viewBtn.title = "View everything on this day";
+        viewBtn.setAttribute("aria-label", "View all events on " + dateStr);
+        viewBtn.addEventListener("click", () => {
+          calendarDayPopupDate = dateStr;
+          render(store.getState());
+        });
+        cell.appendChild(viewBtn);
+      }
+
       grid.appendChild(cell);
     }
     container.appendChild(grid);
@@ -1368,6 +1581,12 @@ export function initUI(store, ai) {
 
     const sections = state.sections.filter((s) => s.pageId === page.id).slice().sort((a, b) => a.order - b.order);
     const tasks = state.tasks.filter((t) => t.pageId === page.id);
+
+    collapseAllBtn.hidden = isCalendar || sections.length === 0;
+    const allSectionsCollapsed = sections.length > 0 && sections.every((s) => isCollapsed(s.id));
+    collapseAllBtn.classList.toggle("active", allSectionsCollapsed);
+    collapseAllBtn.textContent = allSectionsCollapsed ? "⌄ Expand all" : "⌃ Collapse all";
+    collapseAllBtn.setAttribute("aria-pressed", String(allSectionsCollapsed));
 
     sectionsEl.innerHTML = "";
     reviewBtn.hidden = isGrocery || isCalendar || !ai.isConfigured();
@@ -2082,6 +2301,18 @@ export function initUI(store, ai) {
     const page = activePage(store.getState());
     if (!page) return;
     setHideDone(page.id, !isHideDone(page.id));
+    render(store.getState());
+  });
+
+  collapseAllBtn.addEventListener("click", () => {
+    const state = store.getState();
+    const page = activePage(state);
+    if (!page) return;
+    const pageSections = state.sections.filter((s) => s.pageId === page.id);
+    if (pageSections.length === 0) return;
+    const allCollapsed = pageSections.every((s) => isCollapsed(s.id));
+    const target = !allCollapsed;
+    pageSections.forEach((s) => setCollapsed(s.id, target));
     render(store.getState());
   });
 

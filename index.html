@@ -52,6 +52,7 @@
   <div class="toolbar">
     <p class="summary" id="summary">Loading&hellip;</p>
     <div class="toolbar-actions">
+      <button id="collapse-all-btn" type="button" class="review-btn" hidden>&#8963; Collapse all</button>
       <button id="hide-done-btn" type="button" class="review-btn" hidden>&#9745;&#65039; Hide done</button>
       <button id="today-btn" type="button" class="review-btn" title="Everything overdue or due today, across every page">&#128197; Today</button>
       <button id="voice-btn" type="button" class="review-btn voice-btn" title="Voice commands: &quot;add milk to produce&quot;, &quot;check off bananas&quot;, &quot;uncheck bananas&quot;">&#127908; Voice</button>
@@ -76,12 +77,12 @@
     <div class="review-body" id="review-body"></div>
   </div>
 
-  <div class="sections" id="sections"></div>
-
   <div class="panel add-section" id="add-section-panel">
     <input id="new-section" type="text" placeholder="Add a section&hellip; (e.g. a new business or project)" autocomplete="off" maxlength="80" />
     <button id="add-section-btn" type="button">Add section</button>
   </div>
+
+  <div class="sections" id="sections"></div>
 
   <p class="status" id="status" role="status" aria-live="polite"></p>
 

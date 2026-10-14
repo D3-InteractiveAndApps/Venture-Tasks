@@ -1,15 +1,16 @@
-// theme.js — appearance: the font picker, the 25-30 built-in theme
-// presets, and the from-scratch custom text/accent/window/background
-// color overrides. Settings live in store.js's settings blob
+// theme.js — appearance: the font picker, the 35+ built-in theme presets
+// (grouped into Classic / seasonal / event & hobby categories — see
+// THEME_CATEGORY_LABELS), and the from-scratch custom text/accent/window/
+// background color overrides. Settings live in store.js's settings blob
 // (settings.font, settings.theme); this module knows how to apply them
 // to the page. The presets themselves and the color math that expands
 // one into a full set of CSS variables live in themes.js (kept DOM-free
 // there so it's easy to unit test on its own) — this file is just the
 // DOM-touching half of the same feature.
 
-import { THEME_PRESETS, findPreset, deriveThemeVars } from "./themes.js";
+import { THEME_PRESETS, THEME_CATEGORY_LABELS, findPreset, deriveThemeVars } from "./themes.js";
 
-export { THEME_PRESETS, findPreset };
+export { THEME_PRESETS, THEME_CATEGORY_LABELS, findPreset };
 
 export const FONT_OPTIONS = [
   { id: "default", label: "Default (Archivo + Work Sans)" },

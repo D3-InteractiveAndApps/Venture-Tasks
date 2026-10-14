@@ -3,7 +3,7 @@
 
 import { todayStr } from "./dates.js";
 import * as sync from "./sync.js";
-import { FONT_OPTIONS, THEME_PRESETS, findPreset, applyTheme } from "./theme.js";
+import { FONT_OPTIONS, THEME_PRESETS, THEME_CATEGORY_LABELS, findPreset, applyTheme } from "./theme.js";
 import { buildIcsCalendar } from "./ics.js";
 
 export function initSettings(store, ai, onAiChange) {
@@ -79,11 +79,24 @@ export function initSettings(store, ai, onAiChange) {
   customOpt.value = "";
   customOpt.textContent = "Custom / automatic (system light or dark)";
   themePresetSelect.appendChild(customOpt);
-  THEME_PRESETS.forEach((t) => {
-    const opt = document.createElement("option");
-    opt.value = t.id;
-    opt.textContent = t.name;
-    themePresetSelect.appendChild(opt);
+  // Grouped into <optgroup>s — Classic, then each season, then Events and
+  // Hobbies & Interests — rather than one long flat list, now that there
+  // are enough presets (35+) that scanning past all of them for, say, a
+  // birthday theme was getting tedious. THEME_CATEGORY_LABELS fixes both
+  // the group order and its label; a category with no presets in it is
+  // just skipped rather than rendering an empty <optgroup>.
+  THEME_CATEGORY_LABELS.forEach(([category, label]) => {
+    const presetsInGroup = THEME_PRESETS.filter((t) => t.category === category);
+    if (presetsInGroup.length === 0) return;
+    const group = document.createElement("optgroup");
+    group.label = label;
+    presetsInGroup.forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = t.name;
+      group.appendChild(opt);
+    });
+    themePresetSelect.appendChild(group);
   });
 
   // Fallback swatch colors shown in the color pickers when the user hasn't
