@@ -1036,6 +1036,11 @@ export function initUI(store, ai) {
       const tab = document.createElement("button");
       tab.type = "button";
       tab.className = "tab" + (p.id === page.id ? " active" : "");
+      // data-page-type drives a decorative CSS ::before icon per page
+      // type (see styles.css's sidebar nav rules) — kept out of the DOM
+      // text itself (no icon text node) so every existing test doing an
+      // exact textContent comparison against the page name still passes.
+      tab.dataset.pageType = p.type || "tasks";
       tab.textContent = (p.sharedPageId ? "\u{1F465} " : "") + (p.name || "Untitled");
       tab.title = (p.name || "Untitled") + (p.sharedPageId ? " (shared list)" : "");
       tab.addEventListener("click", () => {
@@ -1046,6 +1051,17 @@ export function initUI(store, ai) {
         render(store.getState());
       });
       tabsEl.appendChild(tab);
+      // On the mobile top bar the nav scrolls horizontally instead of
+      // wrapping (see styles.css's @media (max-width: 860px) rules) — so
+      // switching pages can leave the now-active tab scrolled out of
+      // view with no visual sign of which page is open. Bring it back
+      // into view (harmless/no-op on desktop, where every tab already
+      // fits without scrolling).
+      if (p.id === page.id) {
+        requestAnimationFrame(() => {
+          tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        });
+      }
     });
     const addTab = document.createElement("button");
     addTab.type = "button";
@@ -1103,6 +1119,10 @@ export function initUI(store, ai) {
     const task = entry.task;
     const chip = document.createElement("div");
     chip.className = "calendar-event-chip" + (task.done ? " is-done" : "") + (entry.virtual ? " is-virtual" : "");
+    // On the mobile grid the chip collapses to a plain color dot (see
+    // styles.css) with its text hidden, so the title gives a tap-and-hold
+    // / hover way to see what it is without opening the day popup.
+    chip.title = (task.text || "") + (task.eventTime ? " – " + formatEventTime(task.eventTime) : "");
 
     if (entry.virtual) {
       // A projected occurrence of a recurring event — there's no real task

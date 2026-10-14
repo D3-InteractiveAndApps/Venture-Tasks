@@ -1,7 +1,7 @@
 // sw.js — minimal service worker: offline use + fast loading for the
 // home-screen app. Bump VERSION on every deploy so installed copies pick
 // up the new files instead of serving a stale cache forever.
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE_NAME = `venture-tasks-${VERSION}`;
 
 const APP_SHELL = [
