@@ -2,29 +2,35 @@
 
 A to-do list for someone running several small businesses or projects at once — organized into Pages (tabs) and sections per venture, with a cross-venture Today view, drag-and-drop, color coding, due dates, recurring tasks, a "someday" bucket, per-venture health stats (including open client value), client/value tagging for freelance work, calendar export (one-time file or a live subscribe link), shared lists you can co-edit with another account in real time, a Family Calendar page type with freestanding events and any-time list linking, a grocery-list page type with ready-made categories, undo, a font/color-customizable appearance, voice commands, a mobile-friendly layout, and an optional AI co-pilot you connect yourself.
 
-It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you turn on the optional account/sync feature below.
+It's a static site: plain HTML, CSS, and JavaScript (ES modules), no build step, no database of its own to run. Everything you enter is stored in your browser's `localStorage`, unless you sign in for cross-device sync.
+
+**How this is actually set up and sold:** there's one live copy of this app, hosted once (GitHub Pages) and connected to one Supabase project — the same model as [Shiny Ledger](https://d3-interactiveandapps.github.io/ShinyLedger/). Anyone who gets the link just opens it and starts using it: no Supabase account, no API keys, no setup of any kind on their end, whether or not they ever create an account for sync. Everything from "Hosting it — GitHub Pages" through "Setting up accounts and cross-device sync" below is the one-time operator runbook for *that single instance* — it's reference material for you, not something a buyer or end user ever needs to read, let alone do themselves.
 
 ## Features
 
 - **Pages**, switched via tabs across the top — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** tab; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
 - **Today view** — tap the **Today** button (it shows a count badge when there's anything to see) for everything overdue or due today, pulled from *every* page at once, not just whichever one you're currently looking at. Check something off right there, or tap its page/section tag to jump straight to it. See "Using the Today view" below.
 - Three page types, chosen when you add a page: a regular **to-do list**, a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime — or a **Family Calendar**, a month-grid view for freestanding events (not tied to any to-do list) that can also pull in due dates from any other page you link to it. See "Family Calendar" below.
+- **Grocery auto-categorization** — add an item to a grocery list via the search box or by voice without naming a category, and it's filed into the right one automatically (milk → Dairy & Eggs, bananas → Produce, etc.) using a built-in keyword list, with your connected AI provider as a fallback for anything that list doesn't recognize. The category picker on each item still overrides any guess. See "Grocery items file themselves into a category" below.
 - Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered — by drag-and-drop on desktop, or with a pair of up/down buttons on touch devices (drag-and-drop isn't something touchscreens support natively).
 - Tasks within a section: add, check off, color-code, drag between sections, and **reorder within the same section** — by drag-and-drop on desktop, or the same up/down buttons on touch.
 - Checking off a task on a to-do page gets a small "nice work" animation (not shown on grocery lists, where checking items off is just... checking items off).
 - **Voice commands** — tap the Voice button and just say what you want: "add milk to produce," "check off bananas," "uncheck the report." See "Using voice commands" below for details, examples, and browser support.
+- **Search, with a smart Enter** — type to filter a to-do or grocery list down to matching items; press Enter and it checks off a match, unchecks an already-checked one, or adds it as new if nothing matched. See "Searching a list" below.
+- **Hide done** — a toggle next to search that hides everything already checked off on a to-do or grocery page, live (checking something off while it's on hides it immediately), remembered per page. See "Hiding what's checked off" below.
 - **Undo** — Ctrl+Z (Cmd+Z on Mac) undoes your last change: adding/deleting/checking a task, renaming a section, reordering, etc. It stays out of the way while you're typing in a text field, so normal text-undo still works there.
 - **Mobile-friendly** — usable on a phone or tablet, not just a desktop browser: touch-sized tap targets throughout, no unwanted zoom-in when you tap a text field (a common iOS Safari quirk), and the touch reordering buttons mentioned above in place of drag-and-drop.
-- **Appearance**, in Settings (now reachable from the button at the bottom of the page): pick from several fonts (including a couple of serif/mono options), and optionally override the text, window, and background colors used throughout the app — similar in spirit to the color coding already available per section. "Reset colors" reverts to the defaults.
+- **Add it to your home screen** — the app installs like a real app (own icon, own window, works with no signal), using the same icon shown in the browser tab. See "Add it to your home screen" below.
+- **Appearance**, in Settings (now reachable from the button at the bottom of the page): pick from 30 built-in themes for an instant, cohesive look, or pick a font and override the text, accent, window, and background colors individually — similar in spirit to the color coding already available per section. Every field stays editable no matter how you got there. "Reset colors" goes back to following the system's own light/dark setting. See "Themes" below.
 - Due dates with urgency badges, recurring tasks (daily/weekly/monthly — completing one automatically creates the next occurrence), and a "someday" bucket for tasks with no timeline (to-do pages only).
 - **Client and value tags**, in a task's details panel (to-do pages only) — put a client name and a dollar amount on a task (an invoice, a deliverable, anything billable) and both show up as small badges right on the row.
 - A small health strip per section (open tasks, overdue count, days since last activity, and now total open client value when any tagged tasks are still unchecked) on to-do pages.
 - **Calendar export** — in Settings → Your data, export a one-time `.ics` file of every open task's due date, importable into Apple Calendar, Google Calendar, or Outlook. See "Exporting to a calendar app" below for how it works and its one real limitation.
 - **Live calendar** — also in Settings → Your data, a subscribe link (needs an account) that stays current on its own, no re-exporting. See "Live calendar: a subscribe link instead of a file" below.
 - **Shared lists** — turn any page into a shared list (the **Share list** button next to the page title) and invite someone else by code; both of you see each other's changes within a second or two, same as two of your own devices syncing. See "Sharing a list with someone else" below.
-- **Family Calendar** — a month-grid page type for a family (or any group) to see the same calendar and each other's changes to it, with freestanding events (a date, and an optional time) that don't need to live on a to-do list at all, plus the ability to link any existing list to any calendar at any time so its due dates show up on the grid too. See "Family Calendar" below.
+- **Family Calendar** — a month-grid page type for a family (or any group) to see the same calendar and each other's changes to it, with freestanding events (a date, and an optional time) that don't need to live on a to-do list at all, plus the ability to link any existing list to any calendar at any time so its due dates show up on the grid too. Major US holidays show up automatically, every year, with no upkeep needed. See "Family Calendar" below.
 - An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
-- Optional accounts with real cross-device sync (via a free Supabase project you set up once — see below), so a user can sign up, sign in on another computer, and see the same pages/sections/tasks. Works fully without this too, storing data on-device only.
+- Optional accounts with real cross-device sync — sign up right in the app, sign in on another computer, and see the same pages/sections/tasks. No setup needed to use it; it's already connected. Works fully without an account too, storing data on-device only.
 - Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
 
 ## Running it locally
@@ -41,23 +47,26 @@ then open the URL it prints (e.g. `http://localhost:3000` or `http://localhost:8
 
 This is a real, if small, inconvenience compared to true double-click — it was tried as a pre-bundled single file so double-click would work directly, but that path turned out to be unreliable across browsers (font loading and storage behave differently for `file://` pages depending on the browser, and it's easy to end up opening the file from inside an unextracted zip, which silently breaks the relative links to the CSS/JS). The one-line server avoids all of that and behaves identically everywhere, so it's what this app uses.
 
-## Hosting it for free — GitHub Pages
+## Hosting it — GitHub Pages (the one live instance)
+
+This is the one-time deploy. Do it once; every update after this is just a new commit/push to the same repo.
 
 1. Create a new GitHub repository and upload every file from this folder into it — they're all meant to sit directly in the repo root, with no subfolders (see "Project structure" below for why).
 2. In the repo, go to **Settings → Pages**.
 3. Under **Build and deployment**, set **Source** to "Deploy from a branch", pick your main branch and the `/ (root)` folder, then save.
-4. GitHub will give you a URL like `https://<your-username>.github.io/<repo-name>/`. That's the live app — share that link with anyone.
+4. GitHub will give you a URL like `https://<your-username>.github.io/<repo-name>/`. That's the live app — this is the link everyone uses, in Gumroad, in itch.io, everywhere.
 
-No backend, no environment variables, no build step required. Updates are just a new commit/push.
+No backend, no environment variables, no build step required.
 
-## Selling it (e.g. on Gumroad)
+## Selling it (Gumroad, itch.io) — one link, not a file
 
-Gumroad sells files, not live sites, so you have two reasonable options:
+This isn't sold as a download anyone unzips and hosts themselves — it's the same model as Shiny Ledger: one live link, and every listing just points at it.
 
-- **Zip and sell the source.** Zip this whole folder and upload the zip as the Gumroad product. The buyer unzips it and either runs it locally (see above) or hosts their own copy on their own GitHub Pages/Netlify/etc. Simple, and it matches how a lot of small no-backend tools are sold.
-- **Host a live demo yourself, sell access/licensing.** Put a hosted copy (e.g. on GitHub Pages) up as a free demo/landing page, and sell a license key, a paid version with extra features, or just charge for the zip via Gumroad while linking the live demo as the preview.
+- **Gumroad:** list it as a $0 (or "pay what you want") digital product. The "Content" page people see after checkout is just the live link, plus the usual "Add to Home Screen" instructions (see "Add it to your home screen" above) and sync instructions (sign in, same account, on the other device). Gumroad asks for an email at checkout even on a free item — everyone who grabs it becomes someone you can email about future updates.
+- **itch.io:** make an HTML project, upload a tiny one-button "launcher" page (title screen → opens the real app URL in a new tab — this is what gets you a Run button and a spot in itch's "Play in browser" listings, since itch wants an uploaded file, not a bare external link), and put the live link front and center in the description too.
+- Cross-link them: the app's footer links out to itch.io, Gumroad, and GitHub (see "Features" above), and each storefront page links back to the live app.
 
-Either way, there's no license-key enforcement built in right now — if you want to gate features behind a purchase, that's an enhancement to design separately (it would need some kind of lightweight backend or a licensing service, since a pure static site can't verify a purchase on its own).
+There's no license-key enforcement and no paywall built into the app itself — it's free to use once someone has the link, same as Shiny Ledger. If a future version wants to actually gate something behind a purchase, that needs real backend support (a licensing service or similar) — a pure static site can't verify a purchase on its own.
 
 ## How the AI co-pilot actually works (security model)
 
@@ -98,6 +107,40 @@ It doesn't need an exact match — "check off the proof" will find a task called
 
 This runs entirely in your browser, using the same built-in speech recognition Chrome/Edge/Safari already have for dictation — nothing is sent to any server of ours, no API key or account needed. **Firefox doesn't implement this browser feature**, so the Voice button there will explain that and nothing else; everything else in the app is unaffected. The first time you use it, your browser will ask for microphone permission, same as any site that uses voice input.
 
+## Searching a list
+
+Every to-do and grocery page has a search box right above the item count. It does two things, and which one happens depends only on whether what you typed already exists:
+
+- **As you type**, the list filters down to items whose name contains what you've typed — sections with nothing matching just drop out of view until you clear the box. Handy on its own for jumping straight to one item on a long list.
+- **Press Enter**, and it looks at what's actually on the list:
+  - If nothing matches, it adds what you typed as a brand-new item. On a to-do page that lands in the first section (easy to drag or move afterward); on a grocery page it's auto-categorized into whichever category it actually belongs in — see "Grocery items file themselves into a category" below.
+  - If something matches and it's **not** checked off, Enter checks it off.
+  - If something matches and it **is** already checked off, Enter unchecks it.
+
+That's the exact "my partner says add milk, but milk's already on the list and checked off" case: type "milk," hit Enter, done — no scrolling to find it, no deciding whether you're adding or re-checking something, the app works that out from whether it's already there. The match doesn't need to be exact either (same fuzzy matching voice commands use) — "mil" finds "2% Milk." The search box clears itself after Enter, ready for the next item; Escape or the **×** button clears it without doing anything. It's hidden on Family Calendar pages, since those don't have checkable list items in the same sense.
+
+## Hiding what's checked off
+
+The **☑️ Hide done** button, next to the search box, hides every checked-off item on a to-do or grocery page so you can focus on what's actually left — same idea as collapsing finished layers, just for your list. Checking something off while it's on makes that item disappear right then, not just on the next visit. A section that ends up with nothing left to show says so ("Nothing left — 3 checked-off items hidden") instead of claiming the section is empty. The on/off state is remembered per page (so your grocery list can stay in "hide done" mode while a project list doesn't), and it works together with search — searching while "Hide done" is on only shows open items that match, so a checked-off match stays hidden rather than popping back into view. It's hidden on Family Calendar pages, same as search.
+
+## Grocery items file themselves into a category
+
+Add an item to a grocery list through the search box's "Enter to add" (above) or by voice without naming a category ("add milk" rather than "add milk to dairy"), and it lands in the right category on its own — "milk" goes under Dairy & Eggs, "bananas" under Produce, "paper towels" under Household, and so on — instead of you having to pick one by hand every time.
+
+This runs off a built-in list of common grocery keywords, instantly, with no network call and nothing to configure — it covers the kind of items that come up on a typical list. It only ever guesses among the categories that actually exist on *your* page right now, so a category you've renamed or made up from scratch is never bypassed; something it doesn't recognize still gets added, just without a confident guess (same first-category fallback as before this feature existed). If you've connected an AI provider in Settings, anything the built-in list draws a blank on gets one more try — a quick question to that provider asking which of your actual categories it belongs in — before falling back.
+
+None of this takes away the option to place things yourself: typing directly into a specific category's own "add" box still adds it exactly there, no guessing involved, and the category picker already on every grocery row (see the Features list above) still moves anything, auto-categorized or not, to wherever you actually want it — a wrong guess is always one click away from fixed.
+
+## Themes
+
+Settings → Appearance has a **Theme** dropdown with 30 built-in flat-color themes to choose from — things like Midnight, Forest, Sunset, Lavender, Terminal, Blueprint — each one a complete, cohesive look: a background and panel color, a text color, an accent color, and a font, all picked to go together. Picking one applies everything at once, live, no reload needed.
+
+It's never all-or-nothing, though. Every piece a theme sets — text, accent, window ("panel"), background, and font — is still its own separate control right below the dropdown, so picking "Forest" and then deciding you'd rather have a different accent just means changing the accent swatch; nothing else about the theme is disturbed. Once you've hand-edited any single color, the dropdown shows **Custom** instead of claiming you're still on whichever preset you started from — it's just not exactly that preset's colors anymore. You can also skip presets entirely and build a look from scratch the same way this worked before themes existed: pick a font and set the four colors yourself.
+
+The first option, **Custom / automatic (system light or dark)**, is also what "Reset colors" goes back to — it's different from the "Default" theme just below it in the list: Default is always light regardless of your system setting, while Custom/automatic is "no override at all," following whatever your OS or browser's own light/dark preference is, the same way the app behaved before any of this existed.
+
+A theme choice (or a hand-picked set of colors) is saved like any other setting and comes back exactly as you left it next time you open the app, on that device; it isn't part of cross-device account sync, so a second device keeps its own appearance.
+
 ## Tracking client work
 
 Open a task's details (the **⋯** button) and you'll find **Client** and **Value** fields alongside due date and recurrence. Neither is required — they're there for when a task is billable work and it's useful to see that at a glance. Set either one and it shows up as a small badge right on the row (a client name, a dollar amount, or both), in the Today view, and rolled up per section: the health strip adds up the value of every still-open tagged task in that section and shows it as "$X open" — a quick read on how much unbilled or unfinished work is sitting in one place. A recurring task carries its client/value tags forward to each new occurrence, same as its color does.
@@ -136,6 +179,10 @@ Add a page and choose **Family calendar** as its type, and instead of a checklis
 
 **Freestanding events.** Use the quick-add form above the grid to add an event right on the calendar — a date (required) and, optionally, a time. It doesn't need to belong to any to-do list at all; that was the whole point of this page type over just reusing a to-do list's due dates. Click a day to pick which date the form adds to next, or jump straight to today with the **Today** button next to the month name. An event you added here can be renamed in place (click its text) or removed (the **×**); checking it off just dims it, same spirit as checking off a task.
 
+**Cells never change size or shape.** A packed day doesn't stretch its cell, squish its neighbors, or throw the grid out of alignment — every cell on the grid is always the same fixed size, full stop. Once a day has more events than comfortably fit, the rest collapse into a **"+N more"** link instead of piling up; clicking it opens a popup with that day's complete list, fully interactive (check things off, rename, delete) and not truncated at all. The cap is a handful of events per cell (fewer on a phone-width screen, where cells are narrower) — plenty for a normal day, and anything busier is one click away in the popup rather than warping the calendar around it.
+
+**US holidays, shown automatically.** Major US holidays (New Year's Day, MLK Day, Presidents' Day, Easter, Memorial Day, Juneteenth, Independence Day, Labor Day, Columbus Day, Thanksgiving, Christmas, and a handful of other commonly-observed ones — 19 in total) appear right on their date, every year, computed on the fly rather than from a list someone has to update — so next year's calendar already has them too, with no maintenance. A holiday's name shows as a small label under the day number; click it to open that day's popup for the full event list alongside the holiday name. A holiday counts toward that cell's event cap like anything else, so a holiday that lands on a busy day still respects the same "cells never change size" rule above — the label and a couple of events show, and the rest fold into "+N more" same as usual.
+
 **Linking a list, any time, not just at creation.** The **Linked lists** button (next to Share list, on a calendar page) lets you link any existing to-do or grocery list to the calendar — its open due dates show up on the grid alongside the calendar's own events, tagged with which list they came from (click that tag to jump straight to the list). This works both ways and at any point in a calendar's life: link a list the moment you create the calendar, or months later; link more than one; unlink one without affecting anything else. A linked list's own events stay editable only on the list itself — the calendar view shows them read-only, with a jump-to-source tag instead of inline editing, since editing really belongs on the list, not a second place pretending to be the list.
 
 **Sharing it, and sharing what's linked to it.** A Family Calendar page shares exactly like any other page — **Share list** next to the title, same invite-code flow. Once it's shared, linking a NEW list to it asks whether you'd also like to share that list with everyone already on the calendar — say yes, and they're added to the list directly (no separate invite code for them to enter), so a calendar shared with your family and a grocery list you just linked to it can both show up for everyone in one step. Say no, and the list still shows up on the grid for you, just not for anyone else yet — nothing is forced.
@@ -169,7 +216,7 @@ There are two ways to move data between browsers/computers, and you can use eith
 
 ### Setting up accounts and cross-device sync
 
-This is the one feature that needs something outside the browser — a place to hold accounts and everyone's data. [Supabase](https://supabase.com) provides that as a free hosted service (login + a small Postgres database), so you don't have to build or run a server yourself. This is a one-time setup on your end; your users just see a normal "sign up / log in" box.
+**This has already been done once for the live instance** — it's documented here as a runbook, not something to repeat for every user or every sale. This is the one feature that needs something outside the browser — a place to hold accounts and everyone's data. [Supabase](https://supabase.com) provides that as a free hosted service (login + a small Postgres database), so you don't have to build or run a server yourself. Everyone using the live link shares this one project; your users just see a normal "sign up / log in" box in the app, with nothing to configure.
 
 1. **Create a project.** Go to supabase.com, sign up, and create a new project (pick any name/region; the free tier is plenty for an app like this).
 2. **Create the data table.** In your project, open the **SQL Editor** and run:
@@ -204,6 +251,7 @@ This is the one feature that needs something outside the browser — a place to 
    ```
 
 6. Save the file, then reload the page if you're testing locally, or redeploy (push to GitHub / re-upload) if it's already hosted. That's it — the Settings modal now shows a working **Account & sync** section instead of the "not set up" message.
+7. **Run `account-deletion-schema.sql`** (in the SQL Editor, any time after step 2 — it doesn't depend on the shared-lists/live-calendar/family-calendar tables, it just cascades through whichever of those you've also set up). This backs the **Delete my account and data** button that appears once someone's signed in. Almost all of the actual cleanup is already handled by the `on delete cascade` foreign keys already in place from the setup above and from `shared-lists-schema.sql`/`live-calendar-schema.sql`/`family-calendar-schema.sql` if you've run those — deleting the `auth.users` row is the one piece a client can't do on its own (that table isn't writable by a normal logged-in user), so this one `security definer` function does just that, and everything else — their `app_state` row, their live-calendar token, any shared list or calendar they own (which also removes it for everyone else on it) or merely belong to (which just drops their own membership) — cleans up automatically behind it.
 
 **A note on a recent fix:** earlier versions could occasionally show a checkbox snap back to checked right after you unchecked it (or vice versa), when syncing was turned on — a race between your own change being saved and the app receiving its own change back over realtime and mistaking it for someone else's edit. That's been rewritten to compare against what the server actually confirms was saved, rather than guessing, and to not apply an incoming update while one of your own is still in flight. It's been checked carefully against the sync code's logic, but this environment couldn't connect to a live Supabase project to test it against the real thing — if you still see the checkbox-revert behavior after updating, let me know and I'll dig further.
 
@@ -213,8 +261,19 @@ A few honest limitations of this v1 sync, worth knowing:
 - **The anon key is meant to be public.** It ships inside the app's JavaScript on purpose — that's how every Supabase client-side app works. The Row Level Security policy above is what actually protects user data, not keeping that key secret.
 - **No password-reset flow is wired up yet.** Supabase supports it, but this app doesn't have a "forgot password" UI — that'd be a follow-up if you want it.
 - Signing out stops syncing but doesn't erase the local copy in that browser, so the app keeps working offline with whatever was last synced.
+- **Deleting your account is permanent and immediate.** The button lives right below Sign out, needs a second click to confirm (same "click again" pattern as deleting a page or section), and once confirmed it's gone server-side straightaway — there's no grace period or recovery. This environment couldn't test the actual Supabase RPC call against a live project (same limitation as the rest of this section), but the SQL function itself is the same proven pattern Shiny Ledger uses, and the confirm/cancel UI mechanics are straightforward enough to verify just by trying it.
 
 If you'd rather use Firebase instead of Supabase, the same idea applies (auth + a cloud document per user) — `sync.js` is the one file that would need rewriting to call Firebase's SDK instead; nothing else in the app depends on which backend you pick.
+
+## Add it to your home screen
+
+Venture Tasks is a PWA (progressive web app), so it installs to a phone's home screen — or a desktop's dock/taskbar — like a real app: its own icon, its own window with no browser chrome, and it keeps working with no signal once it's been opened at least once. The icon is the same orange tab icon throughout, whether it's the browser tab, the home-screen badge, or the app-switcher thumbnail.
+
+- **iPhone (Safari):** open the site → tap the Share icon → **Add to Home Screen**.
+- **Android (Chrome):** open the site → tap the **⋮** menu → **Install app** (or Chrome may offer an install banner on its own).
+- **Desktop (Chrome/Edge):** an install icon appears at the right edge of the address bar; click it → **Install**.
+
+Behind the scenes this is `manifest.webmanifest` (name, icons, colors) plus `sw.js`, a small service worker that caches the app's own files so they load instantly and still work offline — it never caches your actual data, which already lives in `localStorage`/Supabase, never in this cache. **If you redeploy an update**, bump the `VERSION` string at the top of `sw.js` (e.g. `"v1"` → `"v2"`) — that's what tells installed copies to fetch the new files instead of quietly keeping the old cached ones forever.
 
 ## Project structure
 
@@ -227,16 +286,23 @@ ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
 sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime), shared-list sharing/joining, live-calendar-token logic, and the Family Calendar's list-linking/cross-sharing logic — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items, the Family Calendar's month grid), the cross-page Today view, the share-list and linked-lists modals, drag-and-drop, touch reordering, AI action wiring
+ui.js                   Rendering (tabs, sections, tasks/grocery items, the Family Calendar's fixed-size month grid + day-overflow popup + US holiday labels), the cross-page Today view, the share-list and linked-lists modals, drag-and-drop, touch reordering, list search + smart-Enter add/check/uncheck, the hide-done toggle, grocery auto-categorization (keyword map + AI fallback) on quick-add and voice-add, AI action wiring
 voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
+holidays.js             Computes US holiday dates for any year with plain date math (no API, no yearly data file to maintain)
+categorize.js           Built-in keyword map that guesses a grocery item's category; AI fallback for anything it doesn't recognize is called from ui.js
 ics.js                  Builds the one-time .ics calendar export from current due dates (timed when a Family Calendar event has a time set, all-day otherwise)
-settings.js             Settings modal logic (AI connection, account/sync, join-a-shared-list, live-calendar link, appearance, export/import)
-theme.js                Font options list + applying the font/color overrides to the page
+settings.js             Settings modal logic (AI connection, account/sync, join-a-shared-list, live-calendar link, appearance/theme picker, export/import)
+theme.js                Font options list + applying the active theme/font/color overrides to the page (DOM-touching half of the theme system)
+themes.js               The 30 built-in theme presets + the pure color math (lighten/mix/pickInk) that expands one into a full set of CSS variables (DOM-free half of the theme system, easy to unit test on its own)
 undo.js                 Global Ctrl+Z / Cmd+Z handler
-app.js                  Entry point — wires everything together
+app.js                  Entry point — wires everything together, registers sw.js
+manifest.webmanifest   PWA manifest (name, icons, colors) for "Add to Home Screen"
+sw.js                   Service worker: caches the app's own files for offline use + fast loading (bump VERSION on every deploy)
+icon.svg, icon-192.png, icon-512.png, apple-touch-icon.png, favicon.ico   App icon, in every size a browser/OS/manifest actually asks for
 shared-lists-schema.sql       SQL to run once for shared lists (tables + row-level security + the invite-code join function)
 live-calendar-schema.sql      SQL to run once for the live calendar (the token table)
 family-calendar-schema.sql    SQL to run once for the Family Calendar (calendar-type pages, linked-lists, event times, and the cross-share functions) — run after the two above
+account-deletion-schema.sql   SQL to run once for the "Delete my account and data" button (one function that deletes the auth.users row; everything else cascades)
 supabase/functions/ics-feed/index.ts   The one server piece: an Edge Function that serves a live .ics feed by token
 ```
 

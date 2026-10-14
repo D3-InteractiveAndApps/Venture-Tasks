@@ -16,3 +16,11 @@ const uiApi = initUI(store, ai);
 initSettings(store, ai, () => uiApi.refresh());
 initSync(store);
 initUndo(store);
+
+// Offline use + "add to home screen" support. Safe to skip silently if
+// unavailable (older browsers, or the site served over plain http://).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}

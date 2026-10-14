@@ -3,7 +3,7 @@
 
 import { todayStr } from "./dates.js";
 import * as sync from "./sync.js";
-import { FONT_OPTIONS, applyTheme } from "./theme.js";
+import { FONT_OPTIONS, THEME_PRESETS, findPreset, applyTheme } from "./theme.js";
 import { buildIcsCalendar } from "./ics.js";
 
 export function initSettings(store, ai, onAiChange) {
@@ -34,7 +34,9 @@ export function initSettings(store, ai, onAiChange) {
   const aiStatus = document.getElementById("ai-settings-status");
 
   const fontSelect = document.getElementById("font-select");
+  const themePresetSelect = document.getElementById("theme-preset-select");
   const themeText = document.getElementById("theme-text");
+  const themeAccent = document.getElementById("theme-accent");
   const themePanel = document.getElementById("theme-panel");
   const themeBg = document.getElementById("theme-bg");
   const themeResetBtn = document.getElementById("theme-reset-btn");
@@ -47,6 +49,9 @@ export function initSettings(store, ai, onAiChange) {
   const joinShareCode = document.getElementById("join-share-code");
   const joinShareBtn = document.getElementById("join-share-btn");
   const joinShareStatus = document.getElementById("join-share-status");
+
+  const accountDeleteBtn = document.getElementById("account-delete-btn");
+  const accountDeleteStatus = document.getElementById("account-delete-status");
 
   const liveCalendarSection = document.getElementById("live-calendar-section");
   const liveCalendarGenerateBtn = document.getElementById("live-calendar-generate-btn");
@@ -62,36 +67,77 @@ export function initSettings(store, ai, onAiChange) {
     fontSelect.appendChild(opt);
   });
 
+  // "Custom" (the blank first option) means "whatever's in the color
+  // pickers below right now, with no named preset claiming it" — it's
+  // what shows whenever the current colors don't exactly match one of
+  // the presets anymore (one was tweaked afterward), and it's also
+  // what's active after "Reset colors", which follows the system's own
+  // light/dark setting rather than forcing either one — unlike the
+  // "Default" preset just below it, which is always light regardless of
+  // the system setting.
+  const customOpt = document.createElement("option");
+  customOpt.value = "";
+  customOpt.textContent = "Custom / automatic (system light or dark)";
+  themePresetSelect.appendChild(customOpt);
+  THEME_PRESETS.forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    themePresetSelect.appendChild(opt);
+  });
+
   // Fallback swatch colors shown in the color pickers when the user hasn't
   // overridden that slot yet — matches the app's current default light-mode
   // tokens, just so the picker doesn't open on black.
-  const THEME_DEFAULTS = { text: "#16171a", panel: "#f8f8f9", bg: "#eaebec" };
+  const THEME_DEFAULTS = { text: "#16171a", panel: "#f8f8f9", bg: "#eaebec", accent: "#e8622c" };
 
   function loadAppearanceFields() {
     const s = store.getSettings();
     fontSelect.value = s.font || "default";
+    themePresetSelect.value = s.themePreset || "";
     const theme = s.theme || {};
     themeText.value = theme.text || THEME_DEFAULTS.text;
+    themeAccent.value = theme.accent || THEME_DEFAULTS.accent;
     themePanel.value = theme.panel || THEME_DEFAULTS.panel;
     themeBg.value = theme.bg || THEME_DEFAULTS.bg;
   }
 
+  // Any hand-edit to a single color field means whatever preset was
+  // active (if any) no longer applies exactly — stop tracking it as
+  // "selected" so the dropdown correctly falls back to "Custom" next
+  // time Settings is opened, rather than claiming a preset that's been
+  // tweaked is still that preset.
   function applyAndSaveTheme(patch) {
     const s = store.getSettings();
     const nextTheme = Object.assign({}, s.theme || {}, patch);
-    const updated = store.setSettings({ theme: nextTheme });
+    const updated = store.setSettings({ theme: nextTheme, themePreset: null });
     applyTheme(updated);
   }
 
   fontSelect.addEventListener("change", () => {
-    const updated = store.setSettings({ font: fontSelect.value });
+    const updated = store.setSettings({ font: fontSelect.value, themePreset: null });
     applyTheme(updated);
   });
+  themePresetSelect.addEventListener("change", () => {
+    const id = themePresetSelect.value;
+    if (!id) return; // picking "Custom" itself changes nothing on its own
+    const preset = findPreset(id);
+    if (!preset) return;
+    // A preset replaces the color set wholesale (including dropping any
+    // manual "Windows" override, so the panel surface goes back to being
+    // derived from the preset's own background) but is still just a
+    // starting point — every field below stays editable afterward.
+    const nextTheme = { bg: preset.bg, text: preset.text, accent: preset.accent, dark: preset.dark };
+    const updated = store.setSettings({ font: preset.font, theme: nextTheme, themePreset: id });
+    applyTheme(updated);
+    loadAppearanceFields();
+  });
   themeText.addEventListener("input", () => applyAndSaveTheme({ text: themeText.value }));
+  themeAccent.addEventListener("input", () => applyAndSaveTheme({ accent: themeAccent.value }));
   themePanel.addEventListener("input", () => applyAndSaveTheme({ panel: themePanel.value }));
   themeBg.addEventListener("input", () => applyAndSaveTheme({ bg: themeBg.value }));
   themeResetBtn.addEventListener("click", () => {
-    const updated = store.setSettings({ font: "default", theme: {} });
+    const updated = store.setSettings({ font: "default", theme: {}, themePreset: null });
     applyTheme(updated);
     loadAppearanceFields();
   });
@@ -164,6 +210,7 @@ export function initSettings(store, ai, onAiChange) {
     joinShareStatus.textContent = "";
     joinShareStatus.className = "settings-status";
     joinShareCode.value = "";
+    resetAccountDeleteConfirm();
     liveCalendarStatus.textContent = "";
     liveCalendarStatus.className = "settings-status";
     overlay.hidden = false;
@@ -255,6 +302,44 @@ export function initSettings(store, ai, onAiChange) {
   });
   joinShareCode.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); joinShareBtn.click(); }
+  });
+
+  // Same two-click confirm pattern used for deleting a page/section — a
+  // destructive, unrecoverable action gets a real "are you sure" rather
+  // than firing on the first click.
+  let accountDeleteConfirming = false;
+  let accountDeleteRevertTimer = null;
+  function resetAccountDeleteConfirm() {
+    accountDeleteConfirming = false;
+    if (accountDeleteRevertTimer) { clearTimeout(accountDeleteRevertTimer); accountDeleteRevertTimer = null; }
+    accountDeleteBtn.classList.remove("confirm");
+    accountDeleteBtn.textContent = "Delete my account and data";
+    accountDeleteBtn.disabled = false;
+  }
+
+  accountDeleteBtn.addEventListener("click", async () => {
+    if (!accountDeleteConfirming) {
+      accountDeleteConfirming = true;
+      accountDeleteBtn.classList.add("confirm");
+      accountDeleteBtn.textContent = "Click again to permanently delete everything";
+      accountDeleteRevertTimer = setTimeout(resetAccountDeleteConfirm, 5000);
+      return;
+    }
+    clearTimeout(accountDeleteRevertTimer);
+    accountDeleteBtn.disabled = true;
+    accountDeleteStatus.textContent = "Deleting…";
+    accountDeleteStatus.className = "settings-status";
+    try {
+      await sync.deleteMyAccount();
+      accountDeleteStatus.textContent = "Your account and data have been deleted.";
+      accountDeleteStatus.className = "settings-status ok";
+      resetAccountDeleteConfirm();
+      close();
+    } catch (e) {
+      accountDeleteStatus.textContent = (e && e.message) || "Couldn't delete your account.";
+      accountDeleteStatus.className = "settings-status err";
+      resetAccountDeleteConfirm();
+    }
   });
 
   liveCalendarGenerateBtn.addEventListener("click", async () => {

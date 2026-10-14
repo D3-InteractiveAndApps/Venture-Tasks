@@ -1,6 +1,15 @@
-// theme.js — appearance: the font picker and the custom text/window/background
-// color overrides. Settings live in store.js's settings blob (settings.font,
-// settings.theme); this module just knows how to apply them to the page.
+// theme.js — appearance: the font picker, the 25-30 built-in theme
+// presets, and the from-scratch custom text/accent/window/background
+// color overrides. Settings live in store.js's settings blob
+// (settings.font, settings.theme); this module knows how to apply them
+// to the page. The presets themselves and the color math that expands
+// one into a full set of CSS variables live in themes.js (kept DOM-free
+// there so it's easy to unit test on its own) — this file is just the
+// DOM-touching half of the same feature.
+
+import { THEME_PRESETS, findPreset, deriveThemeVars } from "./themes.js";
+
+export { THEME_PRESETS, findPreset };
 
 export const FONT_OPTIONS = [
   { id: "default", label: "Default (Archivo + Work Sans)" },
@@ -12,31 +21,27 @@ export const FONT_OPTIONS = [
   { id: "nunito", label: "Nunito" }
 ];
 
+// Every CSS variable a theme override can set — cleared in full when no
+// override is active, so a leftover value from a previous theme/custom
+// edit never lingers after a reset or after switching back to "Default".
+const THEME_VAR_NAMES = [
+  "--bg", "--panel", "--panel-2", "--text", "--muted", "--border",
+  "--accent", "--accent-ink", "--done", "--done-bg",
+  "--danger", "--danger-bg", "--warn", "--warn-bg"
+];
+
 function setOrClear(root, name, value) {
   if (value) root.style.setProperty(name, value);
   else root.style.removeProperty(name);
 }
 
-// Nudges a hex color a bit lighter, used to derive the secondary panel
-// surface (card headers, inputs) from the single "window" color the user
-// picks, so there's still some depth instead of one flat color everywhere.
-function lighten(hex, amount) {
-  try {
-    const m = /^#([0-9a-f]{6})$/i.exec(hex);
-    if (!m) return hex;
-    const n = parseInt(m[1], 16);
-    let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
-    r = Math.min(255, Math.round(r + (255 - r) * amount));
-    g = Math.min(255, Math.round(g + (255 - g) * amount));
-    b = Math.min(255, Math.round(b + (255 - b) * amount));
-    return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
-  } catch (e) {
-    return hex;
-  }
-}
-
 // Applies settings.font / settings.theme to the document immediately — no
 // reload needed, so a change in the Settings modal is visible right away.
+// settings.theme can be a hand-picked preset's colors (copied in wholesale
+// when the user picks one from the dropdown) or a from-scratch custom
+// override (the individual color pickers) — deriveThemeVars treats both
+// exactly the same way, since a preset is really just a starting point
+// for the same {bg, text, accent, panel, dark} shape.
 export function applyTheme(settings) {
   const root = document.documentElement;
   const font = (settings && settings.font) || "default";
@@ -44,8 +49,12 @@ export function applyTheme(settings) {
   else root.dataset.font = font;
 
   const theme = (settings && settings.theme) || {};
-  setOrClear(root, "--text", theme.text);
-  setOrClear(root, "--bg", theme.bg);
-  setOrClear(root, "--panel", theme.panel);
-  setOrClear(root, "--panel-2", theme.panel ? lighten(theme.panel, 0.12) : null);
+  const derived = deriveThemeVars(theme);
+  if (!derived) {
+    THEME_VAR_NAMES.forEach((name) => root.style.removeProperty(name));
+    root.style.removeProperty("color-scheme");
+    return;
+  }
+  THEME_VAR_NAMES.forEach((name) => setOrClear(root, name, derived[name]));
+  root.style.colorScheme = derived.colorScheme;
 }

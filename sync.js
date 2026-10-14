@@ -795,3 +795,20 @@ export async function signOut() {
   if (!supabase) return;
   await supabase.auth.signOut();
 }
+
+// Permanently deletes this account and everything tied to it — see
+// account-deletion-schema.sql for exactly what that cascades through
+// (app_state, the calendar token, any shared list/calendar this account
+// OWNS — which also removes it for everyone else on it, same as Stop
+// Sharing — and this account's membership on anything owned by someone
+// else). The RPC does the real work server-side; this just signs the
+// (now-deleted) session out and wipes the local copy so the browser
+// doesn't keep showing data for an account that no longer exists.
+export async function deleteMyAccount() {
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first — there's no account to delete.");
+  const { error } = await supabase.rpc("delete_my_account");
+  if (error) throw new Error(describeError(error));
+  await supabase.auth.signOut();
+  currentStore.resetAllLocalData();
+}

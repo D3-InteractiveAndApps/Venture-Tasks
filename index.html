@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Venture Tasks</title>
 <meta name="description" content="A to-do list for people running several small businesses at once.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23e8622c'/%3E%3Crect x='24' y='30' width='52' height='10' rx='4' fill='white'/%3E%3Crect x='24' y='48' width='34' height='10' rx='4' fill='white' opacity='0.85'/%3E%3Crect x='24' y='66' width='42' height='10' rx='4' fill='white' opacity='0.7'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#e8622c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Venture Tasks">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -37,9 +44,15 @@
     <button id="add-page-cancel" type="button" class="secondary-btn">Cancel</button>
   </div>
 
+  <div class="list-search" id="list-search-wrap" hidden>
+    <input id="list-search-input" type="text" placeholder="Search&hellip; or type a new item and press Enter to add it" autocomplete="off" maxlength="200" aria-label="Search this list" />
+    <button id="list-search-clear" type="button" class="del-btn" aria-label="Clear search" hidden>&times;</button>
+  </div>
+
   <div class="toolbar">
     <p class="summary" id="summary">Loading&hellip;</p>
     <div class="toolbar-actions">
+      <button id="hide-done-btn" type="button" class="review-btn" hidden>&#9745;&#65039; Hide done</button>
       <button id="today-btn" type="button" class="review-btn" title="Everything overdue or due today, across every page">&#128197; Today</button>
       <button id="voice-btn" type="button" class="review-btn voice-btn" title="Voice commands: &quot;add milk to produce&quot;, &quot;check off bananas&quot;, &quot;uncheck bananas&quot;">&#127908; Voice</button>
       <button id="review-btn" type="button" class="review-btn" hidden>Weekly review</button>
@@ -78,6 +91,12 @@
 
   <footer class="footer-note">
     <p>Everything here is stored on this browser (<code>localStorage</code>). Sign in under <strong>Settings &rarr; Account &amp; sync</strong> to keep it synced across computers automatically, or use <strong>Export</strong>/<strong>Import</strong> there to move it by hand.</p>
+    <p class="footer-links">
+      Made by D3 Apps &amp; Interactive &mdash;
+      <a href="https://d3-appsandinteractive.itch.io/" target="_blank" rel="noopener">itch.io</a> &middot;
+      <a href="https://d3appsandinteractive.gumroad.com/" target="_blank" rel="noopener">Gumroad</a> &middot;
+      <a href="https://github.com/D3-InteractiveAndApps" target="_blank" rel="noopener">GitHub</a>
+    </p>
   </footer>
 </main>
 
@@ -135,6 +154,16 @@
             <button id="join-share-btn" type="button" class="secondary-btn">Join shared list</button>
             <span class="settings-status" id="join-share-status"></span>
           </div>
+
+          <p class="settings-help">
+            Permanently delete your account and everything tied to it &mdash; your pages, your calendar
+            link, and any shared list or calendar you own (which also removes it for whoever else is on
+            it). This cannot be undone.
+          </p>
+          <div class="settings-actions">
+            <button id="account-delete-btn" type="button" class="section-del">Delete my account and data</button>
+          </div>
+          <p class="settings-status" id="account-delete-status"></p>
         </div>
       </section>
 
@@ -176,7 +205,11 @@
 
       <section class="settings-section" id="appearance-section">
         <h3>Appearance</h3>
-        <p class="settings-help">Pick a font, and optionally override the text, window, and background colors used everywhere in the app.</p>
+        <p class="settings-help">Pick one of 30 built-in themes for an instant, cohesive look, or pick a font and override individual colors yourself below — either way, every field stays editable afterward.</p>
+        <label class="field">
+          <span class="field-label">Theme</span>
+          <select id="theme-preset-select"></select>
+        </label>
         <label class="field">
           <span class="field-label">Font</span>
           <select id="font-select"></select>
@@ -185,6 +218,10 @@
           <label class="theme-color-field">
             <input id="theme-text" type="color" class="color-swatch" aria-label="Text color" />
             <span class="field-label">Text</span>
+          </label>
+          <label class="theme-color-field">
+            <input id="theme-accent" type="color" class="color-swatch" aria-label="Accent color" />
+            <span class="field-label">Accent</span>
           </label>
           <label class="theme-color-field">
             <input id="theme-panel" type="color" class="color-swatch" aria-label="Window color" />
@@ -332,6 +369,21 @@
 
     <div class="modal-foot">
       <button id="calendar-links-done-btn" type="button" class="primary-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="calendar-day-overlay" hidden>
+  <div class="modal" id="calendar-day-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-day-title">
+    <div class="modal-head">
+      <h2 id="calendar-day-title">Events</h2>
+      <button id="calendar-day-close" type="button" class="del-btn" aria-label="Close day view">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="calendar-day-full-events" id="calendar-day-full-events"></div>
+    </div>
+    <div class="modal-foot">
+      <button id="calendar-day-done-btn" type="button" class="primary-btn">Done</button>
     </div>
   </div>
 </div>

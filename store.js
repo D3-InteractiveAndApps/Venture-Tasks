@@ -567,6 +567,17 @@ export const store = {
   // undoable (see pushUndo's comment above).
   replaceState(data) {
     applyIncomingData(data);
+  },
+
+  // Wipes every page/section/task and starts over with one fresh default
+  // page — used after deleting the account (see sync.js's
+  // deleteMyAccount): the account and everything synced to it are gone
+  // server-side, so the local copy shouldn't keep sitting there looking
+  // like it's still attached to something that no longer exists. Not
+  // undoable, same as the other wholesale-replace methods above.
+  resetAllLocalData() {
+    state = normalizeState(defaultData());
+    persist();
   }
 };
 

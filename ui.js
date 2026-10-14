@@ -8,9 +8,12 @@ import {
   dueBadgeInfo, recurrenceValue, recurrenceFromValue, fmtDate, todayStr
 } from "./dates.js";
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
+import { getHolidaysForYears } from "./holidays.js";
+import { guessCategory } from "./categorize.js";
 import * as sync from "./sync.js";
 
 const LS_COLLAPSED_PREFIX = "ventureTasks:collapsed:";
+const LS_HIDE_DONE_PREFIX = "ventureTasks:hideDone:";
 const LS_ACTIVE_PAGE = "ventureTasks:activePage";
 const TASK_COLOR_DEFAULT = "#9a9da3";
 
@@ -51,6 +54,15 @@ function setCollapsed(id, val) {
     else window.localStorage.removeItem(LS_COLLAPSED_PREFIX + id);
   } catch (e) { /* per-browser convenience only */ }
 }
+function isHideDone(pageId) {
+  try { return window.localStorage.getItem(LS_HIDE_DONE_PREFIX + pageId) === "1"; } catch (e) { return false; }
+}
+function setHideDone(pageId, val) {
+  try {
+    if (val) window.localStorage.setItem(LS_HIDE_DONE_PREFIX + pageId, "1");
+    else window.localStorage.removeItem(LS_HIDE_DONE_PREFIX + pageId);
+  } catch (e) { /* per-browser convenience only */ }
+}
 function getStoredActivePage() {
   try { return window.localStorage.getItem(LS_ACTIVE_PAGE); } catch (e) { return null; }
 }
@@ -79,10 +91,14 @@ export function initUI(store, ai) {
 
   const sectionsEl = document.getElementById("sections");
   const summaryEl = document.getElementById("summary");
+  const listSearchWrap = document.getElementById("list-search-wrap");
+  const listSearchInput = document.getElementById("list-search-input");
+  const listSearchClear = document.getElementById("list-search-clear");
   const statusEl = document.getElementById("status");
   const addSectionPanel = document.getElementById("add-section-panel");
   const newSectionInput = document.getElementById("new-section");
   const addSectionBtn = document.getElementById("add-section-btn");
+  const hideDoneBtn = document.getElementById("hide-done-btn");
   const reviewBtn = document.getElementById("review-btn");
   const reviewPanel = document.getElementById("review-panel");
   const reviewBody = document.getElementById("review-body");
@@ -130,6 +146,12 @@ export function initUI(store, ai) {
   const calendarShareNoBtn = document.getElementById("calendar-share-no-btn");
   const calendarLinksStatus = document.getElementById("calendar-links-status");
 
+  const calendarDayOverlay = document.getElementById("calendar-day-overlay");
+  const calendarDayTitle = document.getElementById("calendar-day-title");
+  const calendarDayClose = document.getElementById("calendar-day-close");
+  const calendarDayDoneBtn = document.getElementById("calendar-day-done-btn");
+  const calendarDayFullEvents = document.getElementById("calendar-day-full-events");
+
   const openDetailsIds = {};
   let reviewCtl = null;
   let activeRecognizer = null;
@@ -141,6 +163,11 @@ export function initUI(store, ai) {
   // one's own month.
   const calendarViewMonths = {};
   let calendarSelectedDate = null;
+  // Which date's "+N more" popup is currently open (null = closed). Kept
+  // here, not just as a DOM hidden flag, so the popup's own content can be
+  // rebuilt on the next render (e.g. after checking something off inside
+  // it) without losing track of which day it's showing.
+  let calendarDayPopupDate = null;
   let lastResolvedLinksForPageId = null;
   let pendingLinkListId = null;
   // Set right before a toggle that should celebrate, and consumed inside the
@@ -149,6 +176,26 @@ export function initUI(store, ai) {
   // to the freshly-built row, not the one the click happened on, which is
   // gone by the time control returns here).
   let pendingCelebrationId = null;
+  // Live search/quick-add, scoped to whichever page is active. Cleared
+  // automatically on page switch (see render()) so a search typed on one
+  // list never silently carries over and filters a different one.
+  let searchQuery = "";
+  let searchContextPageId = null;
+
+  // Plain case-insensitive substring match — used for the live filter as
+  // you type, since it needs to be predictable (what you see is what's
+  // really in the text) rather than forgiving. The fuzzier findBestMatch
+  // (same matcher voice commands use) is reserved for deciding what Enter
+  // does, where "fuzzy enough to find the item" is exactly the point.
+  function taskMatchesQuery(text, query) {
+    return (text || "").toLowerCase().includes(query.toLowerCase());
+  }
+
+  function clearSearch() {
+    searchQuery = "";
+    if (listSearchInput) listSearchInput.value = "";
+    if (listSearchClear) listSearchClear.hidden = true;
+  }
 
   function setStatus(msg, warn) {
     statusEl.textContent = msg || "";
@@ -241,7 +288,7 @@ export function initUI(store, ai) {
     });
   }
 
-  function handleVoiceTranscript(transcript) {
+  async function handleVoiceTranscript(transcript) {
     const state = store.getState();
     const page = activePage(state);
     if (!page) return;
@@ -262,6 +309,7 @@ export function initUI(store, ai) {
 
     if (cmd.type === "add") {
       let targetSection = null;
+      let how = "";
       if (cmd.section) {
         const m = findBestMatch(sections, cmd.section, "name");
         if (!m) { setStatus("Couldn't find a " + labels.noun + " called \"" + cmd.section + "\".", true); return; }
@@ -271,12 +319,18 @@ export function initUI(store, ai) {
       } else if (sections.length === 0) {
         setStatus("Add a " + labels.noun + " first, then try again.", true);
         return;
+      } else if (page.type === "grocery") {
+        // No category named ("add milk") and there's more than one —
+        // guess instead of making the user say "add milk to dairy".
+        const guess = await resolveGroceryCategory(sections, cmd.text);
+        targetSection = guess.section;
+        how = guess.matched ? (guess.viaAI ? " (AI-categorized)" : "") : "";
       } else {
         setStatus("Which " + labels.noun + "? Try \"add " + cmd.text + " to <name>\".", true);
         return;
       }
       store.addTask(targetSection.id, cmd.text);
-      setStatus("Added \"" + cmd.text + "\" to " + (targetSection.name || "Untitled") + ".");
+      setStatus("Added \"" + cmd.text + "\" to " + (targetSection.name || "Untitled") + how + ".");
       return;
     }
 
@@ -812,6 +866,42 @@ export function initUI(store, ai) {
     });
   }
 
+  // Grocery auto-categorization: guesses which existing category a brand
+  // new item belongs to, so it can land in the right place without the
+  // user picking a category by hand first (the category-select dropdown
+  // on each row is still right there afterward if a guess is ever wrong).
+  // Tries the built-in keyword map first — instant, no network, and good
+  // enough for the vast majority of common grocery items — and only asks
+  // the connected AI provider, if there is one, as a fallback for
+  // anything the map doesn't recognize. Always resolves to SOME section
+  // to add into; when nothing matches at all it falls back to the first
+  // category, same default a plain add already used before this feature.
+  async function resolveGroceryCategory(sections, text) {
+    const byName = guessCategory(text, sections.map((s) => s.name));
+    if (byName) {
+      const match = sections.find((s) => s.name === byName);
+      if (match) return { section: match, matched: true, viaAI: false };
+    }
+    if (ai.isConfigured()) {
+      try {
+        const names = sections.map((s) => s.name);
+        const prompt =
+          "A grocery list has these categories: " + names.join(", ") +
+          ". Which single category does the item \"" + text + "\" belong in? " +
+          "Reply with ONLY the exact category name from that list, nothing else.";
+        const res = await ai.ask(prompt);
+        const guess = (res || "").trim().replace(/^["'.]+|["'.]+$/g, "");
+        const match = sections.find((s) => s.name.toLowerCase() === guess.toLowerCase());
+        if (match) return { section: match, matched: true, viaAI: true };
+      } catch {
+        // No key, offline, rate-limited, unparseable reply — whatever it
+        // is, fall through to the plain default below rather than
+        // blocking the add on it.
+      }
+    }
+    return { section: sections[0], matched: false, viaAI: false };
+  }
+
   function wireDeleteSection(btn, sectionId, sectionTaskCount, labels) {
     let confirming = false;
     let revertTimer = null;
@@ -991,6 +1081,32 @@ export function initUI(store, ai) {
     return chip;
   }
 
+  // Keeps the "+N more" day popup's content current — called from inside
+  // renderCalendarGrid on every render, not just when it's opened, so
+  // checking/editing/deleting something from inside the popup (which
+  // triggers a normal store-driven re-render) updates it live instead of
+  // showing stale content or needing to be reopened.
+  function renderCalendarDayPopup(byDate, holidaysByDate) {
+    if (!calendarDayPopupDate) { calendarDayOverlay.hidden = true; return; }
+    const entries = byDate[calendarDayPopupDate] || [];
+    const holidayName = (holidaysByDate || {})[calendarDayPopupDate];
+    const d = new Date(calendarDayPopupDate + "T00:00:00");
+    const dateLabel = isNaN(d.getTime())
+      ? "Events"
+      : d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    calendarDayTitle.textContent = holidayName ? dateLabel + " — " + holidayName : dateLabel;
+    calendarDayFullEvents.innerHTML = "";
+    if (entries.length === 0) {
+      const none = document.createElement("p");
+      none.className = "calendar-no-events";
+      none.textContent = "Nothing on this day.";
+      calendarDayFullEvents.appendChild(none);
+    } else {
+      entries.forEach((entry) => calendarDayFullEvents.appendChild(buildCalendarEventChip(entry)));
+    }
+    calendarDayOverlay.hidden = false;
+  }
+
   function renderCalendarGrid(state, page, ownSections, ownTasks) {
     const view = getCalendarViewMonth(page.id);
     const year = view.year, month = view.month;
@@ -1113,20 +1229,41 @@ export function initUI(store, ai) {
 
     const firstOfMonth = new Date(year, month, 1);
     const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
+    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 41);
     const today = todayStr();
+
+    // A 42-cell grid can show trailing/leading days from the previous or
+    // next year (e.g. viewing January shows late-December cells) — so
+    // holidays are looked up for every distinct year actually on screen,
+    // not just the viewed month's year.
+    const holidaysByDate = getHolidaysForYears([gridStart.getFullYear(), gridEnd.getFullYear()]);
+
+    // Cells are a fixed size (see .calendar-day in styles.css) and never
+    // grow to fit their content — so only ever append up to this many
+    // chips per day; anything past that gets a "+N more" button that opens
+    // the full, untruncated list in a popup instead of stretching the
+    // grid. Mobile cells are shorter (and much narrower — 7 columns on a
+    // phone screen), so they get a smaller cap and a shorter button label
+    // ("+3" instead of "+3 more", which can wrap to two lines and poke
+    // out the bottom of a ~50px-wide cell).
+    const isNarrowCalendar = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 600px)").matches;
+    const maxVisibleEvents = isNarrowCalendar ? 2 : 3;
 
     for (let i = 0; i < 42; i++) {
       const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
       const dateStr = fmtDate(cellDate);
       const inMonth = cellDate.getMonth() === month;
 
+      const holidayName = holidaysByDate[dateStr];
+
       const cell = document.createElement("div");
       cell.className = "calendar-day"
         + (inMonth ? "" : " outside-month")
         + (dateStr === today ? " is-today" : "")
-        + (dateStr === calendarSelectedDate ? " is-selected" : "");
+        + (dateStr === calendarSelectedDate ? " is-selected" : "")
+        + (holidayName ? " has-holiday" : "");
       cell.addEventListener("click", (e) => {
-        if (e.target.closest(".calendar-event-chip")) return;
+        if (e.target.closest(".calendar-event-chip") || e.target.closest(".calendar-holiday-label")) return;
         calendarSelectedDate = dateStr;
         render(store.getState());
       });
@@ -1136,11 +1273,49 @@ export function initUI(store, ai) {
       num.textContent = String(cellDate.getDate());
       cell.appendChild(num);
 
+      if (holidayName) {
+        const holidayLabel = document.createElement("button");
+        holidayLabel.type = "button";
+        holidayLabel.className = "calendar-holiday-label";
+        holidayLabel.textContent = holidayName;
+        holidayLabel.title = holidayName + " — click to see this day";
+        holidayLabel.addEventListener("click", () => {
+          calendarDayPopupDate = dateStr;
+          render(store.getState());
+        });
+        cell.appendChild(holidayLabel);
+      }
+
       const eventsWrap = document.createElement("div");
       eventsWrap.className = "calendar-day-events";
-      (byDate[dateStr] || []).forEach((entry) => {
+      const dayEntries = byDate[dateStr] || [];
+      // A holiday label eats into the same fixed vertical budget as the
+      // event chips, so a holiday cell gets one fewer visible slot —
+      // same "adapt the content, never the cell" rule as the overflow cap.
+      const cellCap = holidayName ? Math.max(1, maxVisibleEvents - 1) : maxVisibleEvents;
+      const hasOverflow = dayEntries.length > cellCap;
+      // When there's overflow, show one fewer chip than the cap so the
+      // "+N more" button itself has guaranteed room — showing the full
+      // cap AND the button was actually overflowing the fixed cell height
+      // (clipped invisible by the overflow:hidden backstop, worse than
+      // useless since there'd be no visible way to see the rest).
+      const visibleCount = hasOverflow ? cellCap - 1 : dayEntries.length;
+      dayEntries.slice(0, visibleCount).forEach((entry) => {
         eventsWrap.appendChild(buildCalendarEventChip(entry));
       });
+      if (hasOverflow) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "calendar-day-more";
+        const hiddenCount = dayEntries.length - visibleCount;
+        more.textContent = isNarrowCalendar ? ("+" + hiddenCount) : ("+" + hiddenCount + " more");
+        more.setAttribute("aria-label", "See all " + dayEntries.length + " events on " + dateStr);
+        more.addEventListener("click", () => {
+          calendarDayPopupDate = dateStr;
+          render(store.getState());
+        });
+        eventsWrap.appendChild(more);
+      }
       cell.appendChild(eventsWrap);
 
       grid.appendChild(cell);
@@ -1148,17 +1323,36 @@ export function initUI(store, ai) {
     container.appendChild(grid);
 
     sectionsEl.appendChild(container);
+
+    renderCalendarDayPopup(byDate, holidaysByDate);
   }
 
   function render(state) {
     const page = activePage(state);
     if (!page) { sectionsEl.innerHTML = ""; tabsEl.innerHTML = ""; return; }
+    if (page.id !== searchContextPageId) {
+      searchContextPageId = page.id;
+      clearSearch();
+      // The day-detail popup is tied to whichever calendar page opened it
+      // — leaving that page (even to another calendar) should close it
+      // rather than leave it showing on top of a different page.
+      calendarDayPopupDate = null;
+      calendarDayOverlay.hidden = true;
+    }
     activePageId = page.id;
     setStoredActivePage(page.id);
 
     const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
     const isGrocery = page.type === "grocery";
     const isCalendar = page.type === "calendar";
+
+    listSearchWrap.hidden = isCalendar;
+
+    const hideDone = !isCalendar && isHideDone(page.id);
+    hideDoneBtn.hidden = isCalendar;
+    hideDoneBtn.classList.toggle("active", hideDone);
+    hideDoneBtn.textContent = hideDone ? "\u{1F441}️ Show done" : "☑️ Hide done";
+    hideDoneBtn.setAttribute("aria-pressed", String(hideDone));
 
     renderTabs(state, page);
 
@@ -1194,15 +1388,29 @@ export function initUI(store, ai) {
       sectionsEl.appendChild(empty);
     }
 
-    let totalOpen = 0, totalAll = 0;
+    let totalOpen = 0, totalAll = 0, totalMatches = 0, totalHidden = 0;
 
     sections.forEach((s, sIdx) => {
       const sectionName = s.name || "Untitled";
-      const sectionTasks = tasks.filter((t) => t.sectionId === s.id).slice().sort((a, b) => a.order - b.order);
-      const open = sectionTasks.filter((t) => !t.done).length;
+      const sectionTasksAll = tasks.filter((t) => t.sectionId === s.id).slice().sort((a, b) => a.order - b.order);
+      let sectionTasks = searchQuery
+        ? sectionTasksAll.filter((t) => taskMatchesQuery(t.text, searchQuery))
+        : sectionTasksAll;
+      const hiddenDoneCount = hideDone ? sectionTasks.filter((t) => t.done).length : 0;
+      totalHidden += hiddenDoneCount;
+      if (hideDone) sectionTasks = sectionTasks.filter((t) => !t.done);
+      // While actively searching, a section with nothing matching just
+      // doesn't render at all — cleaner than an "empty" card per section
+      // that has nothing to do with the search.
+      if (searchQuery && sectionTasks.length === 0) return;
+      totalMatches += sectionTasks.length;
+      const open = sectionTasksAll.filter((t) => !t.done).length;
       totalOpen += open;
-      totalAll += sectionTasks.length;
-      const collapsed = isCollapsed(s.id);
+      totalAll += sectionTasksAll.length;
+      // While actively searching, always show matches — a manually-collapsed
+      // section shouldn't be able to hide a result. This doesn't touch the
+      // stored collapse flag, so leaving the search restores it exactly.
+      const collapsed = searchQuery ? false : isCollapsed(s.id);
       const sectionColor = s.color || "#3d8bff";
       const otherSections = sections.filter((o) => o.id !== s.id).map((o) => ({ id: o.id, name: o.name || "Untitled" }));
 
@@ -1277,13 +1485,13 @@ export function initUI(store, ai) {
 
       const count = document.createElement("span");
       count.className = "section-count";
-      count.textContent = sectionTasks.length === 0 ? "empty" : (open + "/" + sectionTasks.length);
+      count.textContent = sectionTasksAll.length === 0 ? "empty" : (open + "/" + sectionTasksAll.length);
 
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "section-del";
       delBtn.textContent = "Delete";
-      wireDeleteSection(delBtn, s.id, sectionTasks.length, labels);
+      wireDeleteSection(delBtn, s.id, sectionTasksAll.length, labels);
 
       head.appendChild(sectionHandle);
       head.appendChild(sectionMoveBtns);
@@ -1296,7 +1504,7 @@ export function initUI(store, ai) {
 
       let healthEl = null;
       if (!isGrocery) {
-        const health = sectionHealth(sectionTasks);
+        const health = sectionHealth(sectionTasksAll);
         if (health) {
           healthEl = document.createElement("div");
           healthEl.className = "health-strip";
@@ -1340,7 +1548,9 @@ export function initUI(store, ai) {
       if (sectionTasks.length === 0) {
         const et = document.createElement("li");
         et.className = "empty-tasks";
-        et.textContent = labels.emptyTasks;
+        et.textContent = hiddenDoneCount > 0
+          ? "Nothing left — " + hiddenDoneCount + " checked-off item" + (hiddenDoneCount === 1 ? "" : "s") + " hidden."
+          : labels.emptyTasks;
         list.appendChild(et);
       } else if (isGrocery) {
         sectionTasks.forEach((t, i) => {
@@ -1417,11 +1627,21 @@ export function initUI(store, ai) {
       sectionsEl.appendChild(card);
     });
 
+    if (searchQuery && totalMatches === 0 && sections.length > 0) {
+      const noMatch = document.createElement("div");
+      noMatch.className = "panel empty-all";
+      noMatch.textContent = "No matches for “" + searchQuery + "” — press Enter in the search box above to add it as a new item.";
+      sectionsEl.appendChild(noMatch);
+    }
+
+    const hiddenSuffix = hideDone && totalHidden > 0 ? " (" + totalHidden + " hidden)" : "";
     summaryEl.textContent = sections.length === 0
       ? ""
-      : isGrocery
-        ? totalOpen + " of " + totalAll + " left to get across " + sections.length + " categor" + (sections.length === 1 ? "y" : "ies")
-        : totalOpen + " of " + totalAll + " open across " + sections.length + " section" + (sections.length === 1 ? "" : "s");
+      : searchQuery
+        ? totalMatches + " match" + (totalMatches === 1 ? "" : "es") + " for “" + searchQuery + "”" + hiddenSuffix
+        : isGrocery
+          ? totalOpen + " of " + totalAll + " left to get across " + sections.length + " categor" + (sections.length === 1 ? "y" : "ies") + hiddenSuffix
+          : totalOpen + " of " + totalAll + " open across " + sections.length + " section" + (sections.length === 1 ? "" : "s") + hiddenSuffix;
 
     // Cross-page, so it's recomputed from the whole store on every render —
     // not scoped to whichever page/section loop just ran above.
@@ -1429,6 +1649,80 @@ export function initUI(store, ai) {
   }
 
   store.subscribe(render);
+
+  // --- list search: live filter as you type, smart Enter to add/check/uncheck ---
+  listSearchInput.addEventListener("input", () => {
+    searchQuery = listSearchInput.value.trim();
+    listSearchClear.hidden = !searchQuery;
+    render(store.getState());
+  });
+  listSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      clearSearch();
+      render(store.getState());
+      listSearchInput.blur();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+
+    const state = store.getState();
+    const page = activePage(state);
+    if (!page) return;
+    const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
+    const query = listSearchInput.value.trim();
+    if (!query) return;
+
+    const sections = state.sections.filter((s) => s.pageId === page.id);
+    const tasks = state.tasks.filter((t) => t.pageId === page.id);
+    const m = findBestMatch(tasks, query, "text");
+
+    if (m) {
+      // Same item either way: Enter on something unchecked checks it off,
+      // Enter on something already checked off unchecks it — no separate
+      // "did you mean check or uncheck" step, it just does the one thing
+      // that makes sense for whatever state the item is currently in.
+      const wasDone = !!m.item.done;
+      pendingCelebrationId = (page.type !== "grocery" && !wasDone) ? m.item.id : null;
+      store.toggleTaskDone(m.item.id);
+      setStatus((wasDone ? "Unchecked “" : "Checked off “") + m.item.text + "”.");
+      clearSearch();
+      render(store.getState());
+      return;
+    }
+    if (sections.length === 0) {
+      setStatus("Add a " + labels.noun + " first, then try again.", true);
+      return;
+    }
+
+    if (page.type === "grocery") {
+      // Auto-categorize: guess the right category instead of just
+      // dropping every new item into the first one. The category-select
+      // on the row is still there afterward if the guess needs fixing.
+      resolveGroceryCategory(sections, query).then(({ section, matched, viaAI }) => {
+        store.addTask(section.id, query);
+        const how = matched ? (viaAI ? " (AI-categorized)" : "") : "";
+        setStatus("Added “" + query + "” to " + (section.name || "Untitled") + how + ".");
+        clearSearch();
+        render(store.getState());
+      });
+    } else {
+      // No section to aim at from a plain search box the way a voice
+      // command can say "to produce" — new items land in the first
+      // section, easy to drag/move afterward.
+      const targetSection = sections[0];
+      store.addTask(targetSection.id, query);
+      setStatus("Added “" + query + "” to " + (targetSection.name || "Untitled") + ".");
+      clearSearch();
+      render(store.getState());
+    }
+  });
+  listSearchClear.addEventListener("click", () => {
+    clearSearch();
+    render(store.getState());
+    listSearchInput.focus();
+  });
 
   // --- page title / tabs / add-page / delete-page wiring ---
   pageTitleInput.addEventListener("keydown", (e) => {
@@ -1572,7 +1866,16 @@ export function initUI(store, ai) {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !shareOverlay.hidden) closeShareModal();
     if (e.key === "Escape" && !calendarLinksOverlay.hidden) closeCalendarLinksModal();
+    if (e.key === "Escape" && !calendarDayOverlay.hidden) closeCalendarDayPopup();
   });
+
+  function closeCalendarDayPopup() {
+    calendarDayPopupDate = null;
+    calendarDayOverlay.hidden = true;
+  }
+  calendarDayClose.addEventListener("click", closeCalendarDayPopup);
+  calendarDayDoneBtn.addEventListener("click", closeCalendarDayPopup);
+  calendarDayOverlay.addEventListener("click", (e) => { if (e.target === calendarDayOverlay) closeCalendarDayPopup(); });
 
   shareGenerateBtn.addEventListener("click", async () => {
     const page = activePage(store.getState());
@@ -1774,6 +2077,13 @@ export function initUI(store, ai) {
   });
 
   voiceBtn.addEventListener("click", startVoiceCommand);
+
+  hideDoneBtn.addEventListener("click", () => {
+    const page = activePage(store.getState());
+    if (!page) return;
+    setHideDone(page.id, !isHideDone(page.id));
+    render(store.getState());
+  });
 
   todayBtn.addEventListener("click", () => {
     todayPanel.hidden = !todayPanel.hidden;
