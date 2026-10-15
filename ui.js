@@ -10,6 +10,7 @@ import {
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
 import { getHolidaysForYears } from "./holidays.js";
 import { guessCategory } from "./categorize.js";
+import { pickInk } from "./themes.js";
 import * as sync from "./sync.js";
 
 const LS_COLLAPSED_PREFIX = "ventureTasks:collapsed:";
@@ -89,6 +90,21 @@ export function initUI(store, ai) {
   const addPageConfirm = document.getElementById("add-page-confirm");
   const addPageCancel = document.getElementById("add-page-cancel");
 
+  // Mobile home screen (list picker) — see styles.css's 860px media query.
+  // Desktop never shows any of this; the sidebar already works as an
+  // always-visible home screen there.
+  const mobileHomeEl = document.getElementById("mobile-home");
+  const mobileHomeListEl = document.getElementById("mobile-home-list");
+  const mobileHomeSettingsBtn = document.getElementById("mobile-home-settings-btn");
+  const mobileHomeAddToggle = document.getElementById("mobile-home-add-toggle");
+  const mobileAddPageForm = document.getElementById("mobile-add-page-form");
+  const mobileNewPageName = document.getElementById("mobile-new-page-name");
+  const mobileNewPageType = document.getElementById("mobile-new-page-type");
+  const mobileAddPageConfirm = document.getElementById("mobile-add-page-confirm");
+  const mobileAddPageCancel = document.getElementById("mobile-add-page-cancel");
+  const mobileBackBtn = document.getElementById("mobile-back-btn");
+  const mobilePageSettingsBtn = document.getElementById("mobile-page-settings-btn");
+
   const sectionsEl = document.getElementById("sections");
   const summaryEl = document.getElementById("summary");
   const listSearchWrap = document.getElementById("list-search-wrap");
@@ -153,10 +169,41 @@ export function initUI(store, ai) {
   const calendarDayDoneBtn = document.getElementById("calendar-day-done-btn");
   const calendarDayFullEvents = document.getElementById("calendar-day-full-events");
 
+  const calendarAddEventOverlay = document.getElementById("calendar-add-event-overlay");
+  const calendarAddEventClose = document.getElementById("calendar-add-event-close");
+  const calendarAddEventDate = document.getElementById("calendar-add-event-date");
+  const calendarAddEventText = document.getElementById("calendar-add-event-text");
+  const calendarAddEventTime = document.getElementById("calendar-add-event-time");
+  const calendarAddEventRecur = document.getElementById("calendar-add-event-recur");
+  const calendarAddEventCustomDays = document.getElementById("calendar-add-event-custom-days");
+  const calendarAddEventSubmit = document.getElementById("calendar-add-event-submit");
+
   const openDetailsIds = {};
   let reviewCtl = null;
   let activeRecognizer = null;
   let activePageId = getStoredActivePage();
+  // Mobile-only "home screen" state: true shows the full-screen list picker
+  // (#mobile-home), false shows the active page with its back/settings bar.
+  // Always starts true so opening the app on mobile lands on "pick a list"
+  // rather than jumping straight into whichever page was last open — per
+  // Dylan's request for a home screen instead of opening straight to a
+  // list. Has no effect on desktop at all (the sidebar there is always
+  // visible regardless of this flag — see styles.css).
+  let mobileHome = true;
+  // Family Calendar full-screen takeover: true hides the sidebar/page
+  // chrome entirely and shows just a minimal top bar + grid, closest to
+  // Apple Calendar on iPhone — at every viewport width, not just mobile
+  // (see render()'s body.classList.toggle("calendar-fullscreen", ...)).
+  // Always starts true on a fresh "visit" to a calendar page (reset
+  // alongside searchContextPageId below); the fullscreen top bar's own
+  // back button sets it false to reveal the sidebar again instead of
+  // navigating away outright, since "back to other lists" only needs the
+  // normal nav restored, not a jump to a specific page.
+  let calendarFullscreen = true;
+  // Which page the "Add event" modal (opened by double-click / tap-and-hold
+  // on a day cell) is adding to — set when it opens, read on submit since
+  // the modal is static DOM, not rebuilt per render like the grid is.
+  let calendarAddEventPageId = null;
   // Family calendar view state — kept here rather than in the store since
   // it's purely local display state (which month you're looking at, which
   // day is selected for the quick-add form), not data anyone else needs to
@@ -1047,6 +1094,7 @@ export function initUI(store, ai) {
         if (activePageId === p.id) return;
         activePageId = p.id;
         setStoredActivePage(p.id);
+        mobileHome = false;
         addPageForm.hidden = true;
         render(store.getState());
       });
@@ -1055,11 +1103,24 @@ export function initUI(store, ai) {
       // wrapping (see styles.css's @media (max-width: 860px) rules) — so
       // switching pages can leave the now-active tab scrolled out of
       // view with no visual sign of which page is open. Bring it back
-      // into view (harmless/no-op on desktop, where every tab already
-      // fits without scrolling).
+      // into view manually, adjusting ONLY tabsEl's own horizontal
+      // scroll position — renderTabs() runs on every render() (any
+      // action at all, not just switching pages), and scrollIntoView()
+      // walks up through every scrollable ANCESTOR to satisfy its
+      // "nearest" request on both axes; on mobile .sidebar isn't a
+      // vertical scroll container (it's a static top bar there), so
+      // that vertical search didn't stop until the whole document,
+      // scrolling the entire page back to the top after literally any
+      // change. Doing it by hand avoids touching window scroll at all.
       if (p.id === page.id) {
         requestAnimationFrame(() => {
-          tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+          const containerRect = tabsEl.getBoundingClientRect();
+          const tabRect = tab.getBoundingClientRect();
+          if (tabRect.left < containerRect.left) {
+            tabsEl.scrollLeft -= containerRect.left - tabRect.left + 8;
+          } else if (tabRect.right > containerRect.right) {
+            tabsEl.scrollLeft += tabRect.right - containerRect.right + 8;
+          }
         });
       }
     });
@@ -1293,10 +1354,29 @@ export function initUI(store, ai) {
     });
 
     const container = document.createElement("div");
-    container.className = "calendar-view";
+    container.className = "calendar-view" + (calendarFullscreen ? " is-fullscreen" : "");
 
     const toolbar = document.createElement("div");
     toolbar.className = "calendar-toolbar";
+
+    // Full-screen takeover's own way back to other lists — see
+    // calendarFullscreen's declaration up top. Only shown while actually
+    // in the takeover; once backed out, the normal sidebar (desktop) or
+    // mobile back button (mobile) already does this job.
+    if (calendarFullscreen) {
+      const backBtn = document.createElement("button");
+      backBtn.type = "button";
+      backBtn.className = "calendar-fullscreen-back";
+      backBtn.textContent = "‹ Lists";
+      backBtn.setAttribute("aria-label", "Back to your lists");
+      backBtn.addEventListener("click", () => {
+        calendarFullscreen = false;
+        mobileHome = true; // one-tap shortcut on mobile; no effect on desktop
+        render(store.getState());
+      });
+      toolbar.appendChild(backBtn);
+    }
+
     const nav = document.createElement("div");
     nav.className = "calendar-nav";
 
@@ -1346,94 +1426,6 @@ export function initUI(store, ai) {
     toolbar.appendChild(todayNavBtn);
     container.appendChild(toolbar);
 
-    const form = document.createElement("form");
-    form.className = "calendar-quickadd";
-    const dateInput = document.createElement("input");
-    dateInput.type = "date";
-    dateInput.required = true;
-    dateInput.value = calendarSelectedDate || todayStr();
-    dateInput.setAttribute("aria-label", "Event date");
-    const timeInput = document.createElement("input");
-    timeInput.type = "time";
-    timeInput.setAttribute("aria-label", "Event time (optional)");
-    const textInput = document.createElement("input");
-    textInput.type = "text";
-    textInput.placeholder = "Add an event…";
-    textInput.maxLength = 200;
-    textInput.autocomplete = "off";
-
-    // "Reoccurring task" for calendar events — same recurrence vocabulary
-    // as the to-do list's Repeat field (see buildTaskDetailsPanel), reused
-    // here rather than reinvented: every day, every weekday, weekends
-    // only, weekly, monthly, or specific custom days.
-    const recurSelect = document.createElement("select");
-    recurSelect.className = "calendar-quickadd-recur";
-    recurSelect.setAttribute("aria-label", "Repeat");
-    [
-      ["none", "Doesn't repeat"],
-      ["daily", "Every day"],
-      ["weekdays", "Every weekday (Mon–Fri)"],
-      ["weekend", "Weekends (Sat–Sun)"],
-      ["weekly", "Weekly"],
-      ["monthly", "Monthly"],
-      ["custom", "Custom days…"]
-    ].forEach(([v, lbl]) => {
-      const opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = lbl;
-      recurSelect.appendChild(opt);
-    });
-
-    const customDaysRow = document.createElement("div");
-    customDaysRow.className = "calendar-quickadd-custom-days";
-    customDaysRow.hidden = true;
-    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((dayName) => {
-      const dayField = document.createElement("label");
-      dayField.className = "custom-day-check";
-      const dayCheck = document.createElement("input");
-      dayCheck.type = "checkbox";
-      dayField.appendChild(dayCheck);
-      dayField.appendChild(document.createTextNode(dayName));
-      customDaysRow.appendChild(dayField);
-    });
-    recurSelect.addEventListener("change", () => { customDaysRow.hidden = recurSelect.value !== "custom"; });
-
-    const addBtn = document.createElement("button");
-    addBtn.type = "submit";
-    addBtn.textContent = "Add";
-    form.appendChild(dateInput);
-    form.appendChild(timeInput);
-    form.appendChild(textInput);
-    form.appendChild(recurSelect);
-    form.appendChild(addBtn);
-    form.appendChild(customDaysRow);
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const text = textInput.value.trim();
-      if (!text || !dateInput.value) return;
-      const section = ownSections[0];
-      if (!section) return;
-      let recurrence;
-      if (recurSelect.value === "custom") {
-        const chosenDays = Array.from(customDaysRow.querySelectorAll('input[type="checkbox"]'))
-          .map((el, i) => (el.checked ? i : -1))
-          .filter((i) => i !== -1);
-        recurrence = recurrenceFromValue("custom", chosenDays);
-      } else {
-        recurrence = recurrenceFromValue(recurSelect.value);
-      }
-      const task = store.addTask(section.id, text);
-      store.updateTask(task.id, { dueDate: dateInput.value, eventTime: timeInput.value || null, recurrence });
-      calendarSelectedDate = dateInput.value;
-      textInput.value = "";
-      timeInput.value = "";
-      recurSelect.value = "none";
-      customDaysRow.hidden = true;
-      customDaysRow.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
-      textInput.focus();
-    });
-    container.appendChild(form);
-
     const grid = document.createElement("div");
     grid.className = "calendar-grid";
     ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((wd) => {
@@ -1478,6 +1470,30 @@ export function initUI(store, ai) {
         calendarSelectedDate = dateStr;
         render(store.getState());
       });
+
+      // Replaces the old always-visible quick-add form: double-click
+      // (desktop/mouse) or tap-and-hold (touch) a day to add an event
+      // there — deliberately NOT a single tap/click, so just browsing the
+      // calendar never risks adding something by accident.
+      const isInteractiveCellTarget = (target) =>
+        target.closest(".calendar-event-chip") || target.closest(".calendar-holiday-label")
+        || target.closest(".calendar-day-view") || target.closest(".calendar-day-more");
+      cell.addEventListener("dblclick", (e) => {
+        if (isInteractiveCellTarget(e.target)) return;
+        openCalendarAddEvent(page.id, dateStr);
+      });
+      let cellPressTimer = null;
+      cell.addEventListener("touchstart", (e) => {
+        if (isInteractiveCellTarget(e.target)) return;
+        cellPressTimer = setTimeout(() => {
+          cellPressTimer = null;
+          openCalendarAddEvent(page.id, dateStr);
+        }, 550);
+      }, { passive: true });
+      const cancelCellPress = () => { if (cellPressTimer) { clearTimeout(cellPressTimer); cellPressTimer = null; } };
+      cell.addEventListener("touchend", cancelCellPress);
+      cell.addEventListener("touchmove", cancelCellPress);
+      cell.addEventListener("touchcancel", cancelCellPress);
 
       const num = document.createElement("span");
       num.className = "calendar-day-number";
@@ -1560,7 +1576,87 @@ export function initUI(store, ai) {
     renderCalendarDayPopup(byDate, holidaysByDate);
   }
 
+  const MOBILE_HOME_PAGE_ICON = { tasks: "✓", grocery: "\u{1F6D2}", calendar: "\u{1F4C5}" };
+
+  // Per-page subtitle for a mobile home screen card. Calendars get a plain
+  // label rather than an event count — a real count would mean re-deriving
+  // the same linked-list/recurrence projection renderCalendarGrid already
+  // does, just for a line of text, which isn't worth the duplication.
+  function mobileHomeSummary(state, p) {
+    if (p.type === "calendar") return "Family calendar";
+    const pageTasks = state.tasks.filter((t) => t.pageId === p.id);
+    const noun = p.type === "grocery" ? "item" : "task";
+    if (pageTasks.length === 0) return "No " + noun + "s yet";
+    const open = pageTasks.filter((t) => !t.done).length;
+    return open + " open · " + pageTasks.length + " total";
+  }
+
+  // Builds the mobile-only "home screen" list of every page — the
+  // full-screen picker that replaces jumping straight into the last-open
+  // list (see styles.css's 860px media query and the mobileHome flag
+  // above). Rebuilt on every render, same pattern as renderTabs, so it's
+  // never stale even though it's rendered unconditionally regardless of
+  // whether it's actually visible right now.
+  function renderMobileHome(state) {
+    const pages = state.pages.slice().sort((a, b) => a.order - b.order);
+    mobileHomeListEl.innerHTML = "";
+    if (pages.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "mobile-home-empty";
+      empty.textContent = "No lists yet. Add your first one below.";
+      mobileHomeListEl.appendChild(empty);
+      return;
+    }
+    pages.forEach((p) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "mobile-home-card";
+      card.dataset.pageType = p.type || "tasks";
+      card.addEventListener("click", () => {
+        activePageId = p.id;
+        setStoredActivePage(p.id);
+        mobileHome = false;
+        render(store.getState());
+      });
+
+      const icon = document.createElement("span");
+      icon.className = "mobile-home-card-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = MOBILE_HOME_PAGE_ICON[p.type] || MOBILE_HOME_PAGE_ICON.tasks;
+      card.appendChild(icon);
+
+      const text = document.createElement("span");
+      text.className = "mobile-home-card-text";
+
+      const name = document.createElement("span");
+      name.className = "mobile-home-card-name";
+      name.textContent = (p.sharedPageId ? "\u{1F465} " : "") + (p.name || "Untitled");
+      text.appendChild(name);
+
+      const sub = document.createElement("span");
+      sub.className = "mobile-home-card-sub";
+      sub.textContent = mobileHomeSummary(state, p);
+      text.appendChild(sub);
+
+      card.appendChild(text);
+
+      const chevron = document.createElement("span");
+      chevron.className = "mobile-home-card-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      chevron.textContent = "›";
+      card.appendChild(chevron);
+
+      mobileHomeListEl.appendChild(card);
+    });
+  }
+
   function render(state) {
+    // Mobile home screen: rebuilt on every render (same pattern as
+    // renderTabs below) so it's always current, but only actually visible
+    // on mobile widths and only while mobileHome is true — see styles.css.
+    renderMobileHome(state);
+    mobileHomeEl.hidden = !mobileHome;
+
     const page = activePage(state);
     if (!page) { sectionsEl.innerHTML = ""; tabsEl.innerHTML = ""; return; }
     if (page.id !== searchContextPageId) {
@@ -1571,6 +1667,10 @@ export function initUI(store, ai) {
       // rather than leave it showing on top of a different page.
       calendarDayPopupDate = null;
       calendarDayOverlay.hidden = true;
+      // Every fresh "visit" to a page starts a calendar back in its
+      // full-screen takeover, even if a previous visit to a (possibly
+      // different) calendar page had backed out of it.
+      calendarFullscreen = true;
     }
     activePageId = page.id;
     setStoredActivePage(page.id);
@@ -1578,6 +1678,11 @@ export function initUI(store, ai) {
     const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
     const isGrocery = page.type === "grocery";
     const isCalendar = page.type === "calendar";
+
+    // Full-screen takeover hides the sidebar/page-head/toolbar/footer
+    // entirely (see styles.css) — at every viewport width, not just
+    // mobile — leaving just the calendar's own minimal top bar + grid.
+    document.body.classList.toggle("calendar-fullscreen", isCalendar && calendarFullscreen);
 
     listSearchWrap.hidden = isCalendar;
 
@@ -1655,10 +1760,15 @@ export function initUI(store, ai) {
 
       const card = document.createElement("section");
       card.className = "section";
-      card.style.borderLeftColor = sectionColor;
 
       const head = document.createElement("div");
       head.className = "section-head" + (collapsed ? "" : " expanded");
+      // The section's color is now the header's own full-width background
+      // (not a thin card border) — --ink is the readable text/icon color
+      // for whatever that background turns out to be, computed the same
+      // way the theme system picks ink for an accent color.
+      head.style.background = sectionColor;
+      head.style.setProperty("--ink", pickInk(sectionColor));
       head.draggable = true;
       head.addEventListener("dragstart", (e) => {
         e.dataTransfer.effectAllowed = "move";
@@ -1695,7 +1805,10 @@ export function initUI(store, ai) {
       colorInput.className = "color-swatch";
       colorInput.value = sectionColor;
       colorInput.setAttribute("aria-label", "Color for " + sectionName);
-      colorInput.addEventListener("input", () => { card.style.borderLeftColor = colorInput.value; });
+      colorInput.addEventListener("input", () => {
+        head.style.background = colorInput.value;
+        head.style.setProperty("--ink", pickInk(colorInput.value));
+      });
       colorInput.addEventListener("change", () => store.setSectionColor(s.id, colorInput.value));
 
       const collapseBtn = document.createElement("button");
@@ -1977,21 +2090,50 @@ export function initUI(store, ai) {
     store.renamePage(page.id, val);
   });
 
-  addPageConfirm.addEventListener("click", () => {
-    const name = newPageName.value.trim();
-    if (!name) { newPageName.focus(); return; }
-    const page = store.addPage(name, newPageType.value);
+  // Shared by both the desktop add-page form (in the sidebar) and the
+  // mobile one (in #mobile-home) — same store call, same "jump straight
+  // into the new page" behavior either way.
+  function confirmAddPage(nameInput, typeInput, formEl) {
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    const page = store.addPage(name, typeInput.value);
     activePageId = page.id;
     setStoredActivePage(page.id);
-    addPageForm.hidden = true;
-    newPageName.value = "";
+    mobileHome = false;
+    formEl.hidden = true;
+    nameInput.value = "";
     render(store.getState());
-  });
+  }
+
+  addPageConfirm.addEventListener("click", () => confirmAddPage(newPageName, newPageType, addPageForm));
   newPageName.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addPageConfirm.click(); }
     else if (e.key === "Escape") { addPageForm.hidden = true; }
   });
   addPageCancel.addEventListener("click", () => { addPageForm.hidden = true; });
+
+  mobileHomeAddToggle.addEventListener("click", () => {
+    mobileAddPageForm.hidden = !mobileAddPageForm.hidden;
+    if (!mobileAddPageForm.hidden) { mobileNewPageName.value = ""; mobileNewPageName.focus(); }
+  });
+  mobileAddPageConfirm.addEventListener("click", () => confirmAddPage(mobileNewPageName, mobileNewPageType, mobileAddPageForm));
+  mobileNewPageName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); mobileAddPageConfirm.click(); }
+    else if (e.key === "Escape") { mobileAddPageForm.hidden = true; }
+  });
+  mobileAddPageCancel.addEventListener("click", () => { mobileAddPageForm.hidden = true; });
+
+  // Settings lives only in the sidebar's own button (settings.js binds its
+  // open handler to #settings-btn specifically) — these two just proxy a
+  // click to it so Settings stays reachable both from the mobile home
+  // screen and from inside a page on mobile, where the sidebar is hidden.
+  mobileHomeSettingsBtn.addEventListener("click", () => settingsBtn.click());
+  mobilePageSettingsBtn.addEventListener("click", () => settingsBtn.click());
+
+  mobileBackBtn.addEventListener("click", () => {
+    mobileHome = true;
+    render(store.getState());
+  });
 
   let deleteConfirming = false;
   let deleteRevertTimer = null;
@@ -2106,6 +2248,7 @@ export function initUI(store, ai) {
     if (e.key === "Escape" && !shareOverlay.hidden) closeShareModal();
     if (e.key === "Escape" && !calendarLinksOverlay.hidden) closeCalendarLinksModal();
     if (e.key === "Escape" && !calendarDayOverlay.hidden) closeCalendarDayPopup();
+    if (e.key === "Escape" && !calendarAddEventOverlay.hidden) closeCalendarAddEvent();
   });
 
   function closeCalendarDayPopup() {
@@ -2115,6 +2258,87 @@ export function initUI(store, ai) {
   calendarDayClose.addEventListener("click", closeCalendarDayPopup);
   calendarDayDoneBtn.addEventListener("click", closeCalendarDayPopup);
   calendarDayOverlay.addEventListener("click", (e) => { if (e.target === calendarDayOverlay) closeCalendarDayPopup(); });
+
+  // ---- "Add event" modal — replaces the old always-visible quick-add
+  // form. Static DOM built once here (recur options + custom-day
+  // checkboxes), opened by openCalendarAddEvent (called from
+  // renderCalendarGrid's per-cell double-click / tap-and-hold handlers)
+  // pre-filled for whichever date was tapped. ----
+  [
+    ["none", "Doesn't repeat"],
+    ["daily", "Every day"],
+    ["weekdays", "Every weekday (Mon–Fri)"],
+    ["weekend", "Weekends (Sat–Sun)"],
+    ["weekly", "Weekly"],
+    ["monthly", "Monthly"],
+    ["custom", "Custom days…"]
+  ].forEach(([v, lbl]) => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = lbl;
+    calendarAddEventRecur.appendChild(opt);
+  });
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((dayName) => {
+    const dayField = document.createElement("label");
+    dayField.className = "custom-day-check";
+    const dayCheck = document.createElement("input");
+    dayCheck.type = "checkbox";
+    dayField.appendChild(dayCheck);
+    dayField.appendChild(document.createTextNode(dayName));
+    calendarAddEventCustomDays.appendChild(dayField);
+  });
+  calendarAddEventRecur.addEventListener("change", () => {
+    calendarAddEventCustomDays.hidden = calendarAddEventRecur.value !== "custom";
+  });
+
+  function openCalendarAddEvent(pageId, dateStr) {
+    calendarAddEventPageId = pageId;
+    calendarAddEventDate.value = dateStr;
+    calendarAddEventText.value = "";
+    calendarAddEventTime.value = "";
+    calendarAddEventRecur.value = "none";
+    calendarAddEventCustomDays.hidden = true;
+    calendarAddEventCustomDays.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
+    calendarAddEventOverlay.hidden = false;
+    calendarAddEventText.focus();
+  }
+
+  function closeCalendarAddEvent() {
+    calendarAddEventOverlay.hidden = true;
+    calendarAddEventPageId = null;
+  }
+
+  function submitCalendarAddEvent() {
+    const text = calendarAddEventText.value.trim();
+    const dateVal = calendarAddEventDate.value;
+    if (!text) { calendarAddEventText.focus(); return; }
+    if (!dateVal || !calendarAddEventPageId) { closeCalendarAddEvent(); return; }
+    const state = store.getState();
+    const sections = state.sections.filter((s) => s.pageId === calendarAddEventPageId).slice().sort((a, b) => a.order - b.order);
+    const section = sections[0];
+    if (!section) { closeCalendarAddEvent(); return; }
+    let recurrence;
+    if (calendarAddEventRecur.value === "custom") {
+      const chosenDays = Array.from(calendarAddEventCustomDays.querySelectorAll('input[type="checkbox"]'))
+        .map((el, i) => (el.checked ? i : -1))
+        .filter((i) => i !== -1);
+      recurrence = recurrenceFromValue("custom", chosenDays);
+    } else {
+      recurrence = recurrenceFromValue(calendarAddEventRecur.value);
+    }
+    const task = store.addTask(section.id, text);
+    store.updateTask(task.id, { dueDate: dateVal, eventTime: calendarAddEventTime.value || null, recurrence });
+    calendarSelectedDate = dateVal;
+    closeCalendarAddEvent();
+    render(store.getState());
+  }
+
+  calendarAddEventSubmit.addEventListener("click", submitCalendarAddEvent);
+  calendarAddEventText.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitCalendarAddEvent(); }
+  });
+  calendarAddEventClose.addEventListener("click", closeCalendarAddEvent);
+  calendarAddEventOverlay.addEventListener("click", (e) => { if (e.target === calendarAddEventOverlay) closeCalendarAddEvent(); });
 
   shareGenerateBtn.addEventListener("click", async () => {
     const page = activePage(store.getState());

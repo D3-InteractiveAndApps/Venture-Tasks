@@ -18,6 +18,38 @@
 </head>
 <body>
 
+<!-- Mobile-only "home screen": a full-screen list picker that replaces the
+     horizontal top tab bar below the 860px breakpoint (see styles.css).
+     Desktop never shows this — the sidebar is already an always-visible
+     home screen there. Lives as a sibling right before .app-shell so a
+     plain CSS sibling-combinator rule can hide the whole app-shell behind
+     it while it's showing, with no extra wrapper element needed. -->
+<div class="mobile-home" id="mobile-home" hidden>
+  <header class="mobile-home-head">
+    <div class="mobile-home-brand">
+      <span class="sidebar-brand-mark" aria-hidden="true">&#9670;</span>
+      <h1 class="mobile-home-title">Venture Tasks</h1>
+    </div>
+    <button id="mobile-home-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+  </header>
+
+  <div class="mobile-home-list" id="mobile-home-list"></div>
+
+  <div class="mobile-home-add-wrap">
+    <button id="mobile-home-add-toggle" type="button" class="mobile-home-add-btn">&#65291; Add a list</button>
+    <div class="add-page-form mobile-add-page-form" id="mobile-add-page-form" hidden>
+      <input id="mobile-new-page-name" type="text" placeholder="List name&hellip; (e.g. Daily Life)" autocomplete="off" maxlength="60" />
+      <select id="mobile-new-page-type">
+        <option value="tasks">To-do list</option>
+        <option value="grocery">Grocery list</option>
+        <option value="calendar">Family calendar</option>
+      </select>
+      <button id="mobile-add-page-confirm" type="button" class="primary-btn">Add list</button>
+      <button id="mobile-add-page-cancel" type="button" class="secondary-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="app-shell">
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
@@ -45,6 +77,14 @@
 
 <div class="app-main">
 <main>
+  <!-- Mobile-only: replaces the old horizontal top tab bar as the way back
+       to the list picker, plus a Settings entry point now that the sidebar
+       (which held #settings-btn) is hidden entirely below 860px. -->
+  <div class="mobile-page-bar" id="mobile-page-bar">
+    <button id="mobile-back-btn" type="button" class="mobile-back-btn">&#8249; Lists</button>
+    <button id="mobile-page-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+  </div>
+
   <header class="page-head">
     <div class="page-head-text">
       <div class="page-title-row">
@@ -397,6 +437,41 @@
     </div>
     <div class="modal-foot">
       <button id="calendar-day-done-btn" type="button" class="primary-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Replaces the old always-visible quick-add form on the Family Calendar:
+     double-clicking (desktop) or tapping and holding (mobile) a day cell
+     opens this instead, pre-filled with that date — see openCalendarAddEvent
+     in ui.js. -->
+<div class="modal-overlay" id="calendar-add-event-overlay" hidden>
+  <div class="modal" id="calendar-add-event-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-add-event-title">
+    <div class="modal-head">
+      <h2 id="calendar-add-event-title">Add event</h2>
+      <button id="calendar-add-event-close" type="button" class="del-btn" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span class="field-label">Date</span>
+        <input id="calendar-add-event-date" type="date" required />
+      </label>
+      <label class="field">
+        <span class="field-label">Event</span>
+        <input id="calendar-add-event-text" type="text" maxlength="200" placeholder="What&rsquo;s happening?" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span class="field-label">Time (optional)</span>
+        <input id="calendar-add-event-time" type="time" />
+      </label>
+      <label class="field">
+        <span class="field-label">Repeat</span>
+        <select id="calendar-add-event-recur"></select>
+      </label>
+      <div class="calendar-quickadd-custom-days" id="calendar-add-event-custom-days" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <button id="calendar-add-event-submit" type="button" class="primary-btn">Add event</button>
     </div>
   </div>
 </div>

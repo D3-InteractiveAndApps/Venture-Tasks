@@ -398,7 +398,12 @@ export const store = {
       sectionId: sectionId,
       pageId: section ? section.pageId : null,
       order: Date.now(),
-      color: null,
+      // A new task/item starts color-matched to its own section (every
+      // section always has a real color, assigned from SECTION_PALETTE
+      // at creation) rather than the generic gray default — the user can
+      // still override it individually afterward via the row's own color
+      // swatch, same as always.
+      color: section ? section.color : null,
       dueDate: null,
       eventTime: null,
       recurrence: null,

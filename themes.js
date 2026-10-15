@@ -33,43 +33,28 @@ export const THEME_PRESETS = [
   { id: "midnight", name: "Midnight", bg: "#14151c", text: "#e9eaf0", accent: "#6c8cff", dark: true, font: "default", category: "general" },
   { id: "slate", name: "Slate", bg: "#e4e7eb", text: "#1f2733", accent: "#3a6ea5", dark: false, font: "inter", category: "general" },
   { id: "charcoal", name: "Charcoal", bg: "#1b1d1f", text: "#eceeee", accent: "#d98e4a", dark: true, font: "inter", category: "general" },
-  { id: "steel", name: "Steel", bg: "#e2e6ea", text: "#1a2228", accent: "#52708c", dark: false, font: "jetbrains-mono", category: "general" },
   { id: "terminal", name: "Terminal", bg: "#0c120d", text: "#baf2c6", accent: "#4fe06a", dark: true, font: "jetbrains-mono", category: "general" },
-  { id: "grape-soda", name: "Grape Soda", bg: "#1c1033", text: "#e6def5", accent: "#9a6ef0", dark: true, font: "poppins", category: "general" },
 
-  { id: "forest", name: "Forest", bg: "#eef3ea", text: "#1f2e1a", accent: "#3f7d3a", dark: false, font: "default", category: "spring" },
-  { id: "lavender", name: "Lavender", bg: "#f3eefb", text: "#2e2340", accent: "#8c5fd6", dark: false, font: "poppins", category: "spring" },
-  { id: "rose", name: "Rose", bg: "#fdecef", text: "#3a1620", accent: "#e05577", dark: false, font: "nunito", category: "spring" },
-  { id: "mint", name: "Mint", bg: "#e7f7ef", text: "#123327", accent: "#2cb67d", dark: false, font: "default", category: "spring" },
-  { id: "seafoam", name: "Seafoam", bg: "#e8f6f3", text: "#0f2e29", accent: "#22a699", dark: false, font: "inter", category: "spring" },
-  { id: "blush", name: "Blush", bg: "#fbeaf0", text: "#3a1b28", accent: "#d9598b", dark: false, font: "poppins", category: "spring" },
+  { id: "cherry-blossom", name: "Cherry Blossom", bg: "#fdecf1", text: "#3a1620", accent: "#d9598b", dark: false, font: "nunito", category: "spring" },
+  { id: "meadow", name: "Meadow", bg: "#e9f7ea", text: "#16321f", accent: "#3fa35c", dark: false, font: "default", category: "spring" },
 
-  { id: "sunrise", name: "Sunrise", bg: "#fff4e6", text: "#3a2a1a", accent: "#ef7d2d", dark: false, font: "nunito", category: "summer" },
-  { id: "sunset", name: "Sunset", bg: "#2a1a2e", text: "#f3e6f0", accent: "#f2567c", dark: true, font: "nunito", category: "summer" },
   { id: "ocean", name: "Ocean", bg: "#e6f3f7", text: "#10303a", accent: "#1f8fb0", dark: false, font: "inter", category: "summer" },
-  { id: "sky", name: "Sky", bg: "#eaf3fb", text: "#15293a", accent: "#2f8fe0", dark: false, font: "space-grotesk", category: "summer" },
-  { id: "peach", name: "Peach", bg: "#ffece0", text: "#3a2016", accent: "#f08a52", dark: false, font: "default", category: "summer" },
+  { id: "sunset", name: "Sunset", bg: "#2a1a2e", text: "#f3e6f0", accent: "#f2567c", dark: true, font: "nunito", category: "summer" },
 
-  { id: "plum", name: "Plum", bg: "#241526", text: "#ecdff0", accent: "#c06bdc", dark: true, font: "poppins", category: "fall" },
-  { id: "wine", name: "Wine", bg: "#250f14", text: "#f0dde1", accent: "#d64c66", dark: true, font: "lora", category: "fall" },
-  { id: "sand", name: "Sand", bg: "#f3ead8", text: "#3a2f1c", accent: "#c08a3e", dark: false, font: "lora", category: "fall" },
-  { id: "espresso", name: "Espresso", bg: "#211711", text: "#efe4d9", accent: "#c98a4e", dark: true, font: "lora", category: "fall" },
-  { id: "honey", name: "Honey", bg: "#fff6e0", text: "#332700", accent: "#d6a018", dark: false, font: "nunito", category: "fall" },
-  { id: "amber-night", name: "Amber Night", bg: "#231a0c", text: "#f2e6c9", accent: "#e0a63a", dark: true, font: "nunito", category: "fall" },
-  { id: "cocoa", name: "Cocoa", bg: "#e9ddd2", text: "#3b2a1e", accent: "#8a5a3b", dark: false, font: "lora", category: "fall" },
+  // Fall: all three built specifically around "changing leaves" tones —
+  // burnt-orange maple, golden harvest amber, deep brick-red rust — rather
+  // than the generic warm-neutral palette the previous fall set leaned on.
+  { id: "maple", name: "Maple", bg: "#f7ead3", text: "#3b1f12", accent: "#c84b28", dark: false, font: "lora", category: "fall" },
+  { id: "harvest", name: "Harvest", bg: "#2a1810", text: "#f3e2c9", accent: "#e0932f", dark: true, font: "lora", category: "fall" },
+  { id: "rust", name: "Rust", bg: "#2b1016", text: "#f2e0df", accent: "#b8432f", dark: true, font: "lora", category: "fall" },
 
-  { id: "pine", name: "Pine", bg: "#142019", text: "#e3ede6", accent: "#4caf7d", dark: true, font: "default", category: "winter" },
-  { id: "deep-sea", name: "Deep Sea", bg: "#0f1f2b", text: "#d9ecf2", accent: "#33b5d6", dark: true, font: "inter", category: "winter" },
-  { id: "emerald", name: "Emerald", bg: "#0e1f19", text: "#dcf0e6", accent: "#35c88f", dark: true, font: "default", category: "winter" },
-  { id: "nebula", name: "Nebula", bg: "#161029", text: "#e6e1f5", accent: "#8a6ff0", dark: true, font: "space-grotesk", category: "winter" },
   { id: "blueprint", name: "Blueprint", bg: "#0d1b2b", text: "#d7e6f5", accent: "#4f8fd9", dark: true, font: "jetbrains-mono", category: "winter" },
+  { id: "pine", name: "Pine", bg: "#142019", text: "#e3ede6", accent: "#4caf7d", dark: true, font: "default", category: "winter" },
 
   { id: "birthday-party", name: "Birthday Party", bg: "#fff0f6", text: "#3a1030", accent: "#ff4d8d", dark: false, font: "poppins", category: "event" },
-  { id: "confetti", name: "Confetti", bg: "#fffbe8", text: "#332b00", accent: "#ffb020", dark: false, font: "poppins", category: "event" },
   { id: "wedding-day", name: "Wedding Day", bg: "#faf6ef", text: "#2e2a22", accent: "#c9a227", dark: false, font: "lora", category: "event" },
   { id: "evergreen-holiday", name: "Evergreen Holiday", bg: "#0e2419", text: "#eaf3ec", accent: "#e23d3d", dark: true, font: "lora", category: "event" },
 
-  { id: "game-night", name: "Game Night", bg: "#0b0b16", text: "#e8e6ff", accent: "#39ff9d", dark: true, font: "jetbrains-mono", category: "hobby" },
   { id: "retro-arcade", name: "Retro Arcade", bg: "#140a22", text: "#f2e6ff", accent: "#ff2e9a", dark: true, font: "jetbrains-mono", category: "hobby" },
   { id: "stadium-lights", name: "Stadium Lights", bg: "#0f1d33", text: "#eef3fb", accent: "#ffb703", dark: true, font: "space-grotesk", category: "hobby" },
   { id: "home-team", name: "Home Team", bg: "#eef6ea", text: "#122a1c", accent: "#1f8f4f", dark: false, font: "inter", category: "hobby" }

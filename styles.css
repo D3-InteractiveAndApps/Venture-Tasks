@@ -122,6 +122,59 @@ body {
 .sidebar-footer { margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .sidebar-settings-btn { width: 100%; justify-content: center; }
 
+/* ---- Mobile home screen (list picker) + the back/settings bar that
+   replaces it once a page is open. Both are no-ops on desktop — hidden
+   here unconditionally, and only switched on inside the 860px media query
+   further down, where the sidebar is hidden entirely instead. The sibling
+   rule is what actually swaps the view on mobile: while #mobile-home is
+   showing, the whole .app-shell (sidebar + page content) is hidden behind
+   it rather than just visually covered, so nothing in it can be focused or
+   scrolled to by accident. ---- */
+.mobile-home { display: none; }
+.mobile-page-bar { display: none; }
+
+.mobile-home-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); flex-shrink: 0; }
+.mobile-home-brand { display: flex; align-items: center; gap: var(--space-2); }
+.mobile-home-title { font-family: var(--font-heading); font-size: var(--text-lg); font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+
+.mobile-home-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.mobile-home-card {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; text-align: left;
+  font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); cursor: pointer;
+  box-shadow: var(--shadow-sm); transition: border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
+}
+.mobile-home-card:hover, .mobile-home-card:focus-visible { border-color: var(--accent); }
+.mobile-home-card-icon {
+  flex-shrink: 0; width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 19px; color: var(--accent-ink); background: var(--accent); border-radius: var(--radius-md);
+}
+.mobile-home-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mobile-home-card-name {
+  font-family: var(--font-heading); font-weight: 700; font-size: var(--text-base); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mobile-home-card-sub { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mobile-home-card-chevron { flex-shrink: 0; color: var(--muted); font-size: var(--text-lg); line-height: 1; }
+
+.mobile-home-empty {
+  text-align: center; color: var(--muted); font-size: var(--text-sm); padding: var(--space-7) var(--space-4);
+}
+
+.mobile-home-add-wrap { margin-top: var(--space-4); flex-shrink: 0; }
+.mobile-home-add-btn {
+  width: 100%; font: inherit; font-size: var(--text-sm); font-weight: 700; color: var(--muted); background: transparent;
+  border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 12px; cursor: pointer;
+}
+.mobile-home-add-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mobile-add-page-form { margin-top: var(--space-3); flex-direction: column; }
+
+.mobile-back-btn {
+  font: inherit; font-size: var(--text-sm); font-weight: 600; color: var(--muted); background: transparent;
+  border: none; padding: 8px 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;
+}
+.mobile-back-btn:hover { color: var(--accent); }
+
 .app-main { flex: 1; min-width: 0; display: flex; justify-content: center; padding: var(--space-7) var(--space-5) 64px; }
 main { width: 100%; max-width: 720px; }
 
@@ -228,7 +281,16 @@ main { width: 100%; max-width: 720px; }
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 7px 13px; cursor: pointer;
   transition: border-color 0.12s var(--ease), color 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
-.review-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-xs); }
+/* :not(:disabled) alone gives this three selector units of specificity —
+   MORE than .review-btn.active or .voice-btn.listening (two each) — so
+   without the extra :not()s below, simply hovering an active/listening
+   button (which mobile browsers keep "stuck" after a tap until you tap
+   elsewhere) always won and repainted its text the same color as its
+   own background: invisible text on "Collapse all" → "Expand all", and
+   on the mic button while listening. Both states should visually win
+   over a mere hover, so hover is explicitly excluded from touching
+   color/background when either is present. */
+.review-btn:hover:not(:disabled):not(.active):not(.listening) { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-xs); }
 .review-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .review-btn.active { border-color: var(--accent); color: var(--accent-ink); background: var(--accent); }
 
@@ -275,63 +337,87 @@ main { width: 100%; max-width: 720px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
 
 .section {
-  background: var(--panel-2); border: 1px solid var(--border); border-left-width: 3px;
+  background: var(--panel-2); border: 1px solid var(--border);
   border-radius: var(--radius-lg); overflow: hidden; transition: opacity 0.12s var(--ease), box-shadow 0.15s var(--ease);
   box-shadow: var(--shadow-sm);
 }
 .section:hover { box-shadow: var(--shadow-md); }
 .section.dragging { opacity: 0.45; }
-.section-head { display: flex; align-items: center; gap: 10px; padding: var(--space-3) var(--space-4); background: var(--panel-2); cursor: grab; }
-.section-head.expanded { border-bottom: 1px solid var(--border); }
-.section-handle { flex-shrink: 0; color: var(--muted); font-size: 13px; letter-spacing: -1px; user-select: none; }
+/* The section's own color is the header's full-width background (set
+   inline per-section in ui.js, along with a --ink custom property —
+   near-black or near-white, whichever reads on that background). Every
+   icon/text inside just says `color: var(--ink)` instead of the usual
+   --text/--muted tokens, and hover/press states use a currentColor tint
+   via color-mix so they work on any section color without per-color
+   light/dark branching. */
+.section-head {
+  display: flex; align-items: center; gap: 10px; padding: var(--space-3) var(--space-4);
+  color: var(--ink, var(--text)); cursor: grab; transition: padding 0.1s var(--ease);
+}
+/* Collapsed: only the arrow, color swatch, and title earn a place —
+   drag handle, reorder buttons, item count, and Delete all disappear
+   until it's expanded again, so a long list of collapsed sections reads
+   as a compact index instead of each one still claiming a full row's
+   worth of chrome. The section stays draggable by its header either way
+   (head.draggable isn't tied to the handle's visibility). */
+.section-head:not(.expanded) { padding: 9px var(--space-4); }
+.section-head:not(.expanded) .section-handle,
+.section-head:not(.expanded) .move-btns,
+.section-head:not(.expanded) .section-count,
+.section-head:not(.expanded) .section-del {
+  display: none;
+}
+.section-handle { flex-shrink: 0; color: var(--ink, var(--muted)); opacity: 0.75; font-size: 13px; letter-spacing: -1px; user-select: none; }
 @media (hover: none) and (pointer: coarse) { .section-handle { display: none; } }
 
 .move-btns { display: none; flex-shrink: 0; flex-direction: column; gap: 3px; }
 .move-btn {
-  width: 22px; height: 16px; display: grid; place-content: center; border: 1px solid var(--border);
-  background: var(--panel-2); color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 700;
+  width: 22px; height: 16px; display: grid; place-content: center;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent; color: inherit; cursor: pointer; font-size: 10px; font-weight: 700;
   border-radius: 4px; line-height: 1;
 }
-.move-btn:hover:not(:disabled) { color: var(--text); background: var(--bg); }
+.move-btn:hover:not(:disabled) { background: color-mix(in srgb, currentColor 18%, transparent); }
 .move-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 @media (hover: none) and (pointer: coarse) { .move-btns { display: flex; } }
 
 .color-swatch {
   -webkit-appearance: none; appearance: none; flex-shrink: 0; width: 20px; height: 20px; padding: 0;
-  border: 1.5px solid var(--border); border-radius: 50%; background: none; cursor: pointer;
+  border: 2px solid color-mix(in srgb, currentColor 45%, transparent); border-radius: 50%; background: none; cursor: pointer;
 }
 .color-swatch::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; overflow: hidden; }
 .color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
 .color-swatch::-moz-color-swatch { border: none; border-radius: 50%; }
-.color-swatch.small { width: 16px; height: 16px; margin-top: 2px; }
+.color-swatch.small { width: 16px; height: 16px; margin-top: 2px; border-color: var(--border); }
 .section-head input[type="text"] { cursor: text; }
 .section-head button, .section-head input[type="color"] { cursor: pointer; }
 
 .collapse-btn {
   flex-shrink: 0; width: 28px; height: 28px; display: grid; place-content: center; border: none;
-  background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; border-radius: var(--radius-sm);
-  transition: transform 0.15s var(--ease), background 0.12s var(--ease), color 0.12s var(--ease);
+  background: transparent; color: inherit; cursor: pointer; font-size: 15px; border-radius: var(--radius-sm);
+  transition: transform 0.15s var(--ease), background 0.12s var(--ease);
 }
-.collapse-btn:hover { color: var(--text); background: var(--bg); }
+.collapse-btn:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
 .collapse-btn.is-collapsed { transform: rotate(-90deg); }
 
 .section-name {
   font-family: var(--font-heading); font-weight: 700; font-size: var(--text-md); margin: 0; flex: 1; min-width: 0;
-  word-wrap: break-word; background: transparent; color: var(--text); border: 1px solid transparent;
+  word-wrap: break-word; background: transparent; color: inherit; border: 1px solid transparent;
   border-radius: var(--radius-sm); padding: 4px 6px; margin-inline: -6px;
 }
-.section-name:hover { border-color: var(--border); }
-.section-name:focus { border-color: var(--accent); background: var(--bg); outline: none; }
+.section-name::placeholder { color: inherit; opacity: 0.7; }
+.section-name:hover { border-color: color-mix(in srgb, currentColor 30%, transparent); }
+.section-name:focus { border-color: currentColor; background: color-mix(in srgb, currentColor 14%, transparent); outline: none; }
 
-.section-count { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: var(--text-xs); color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.section-count { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: var(--text-xs); color: inherit; opacity: 0.8; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 .section-del {
   flex-shrink: 0; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: 0.02em;
-  color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 9px; cursor: pointer; white-space: nowrap;
+  color: inherit; opacity: 0.85; background: transparent; border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer; white-space: nowrap;
 }
-.section-del:hover { color: var(--danger); border-color: var(--danger); }
-.section-del.confirm { color: var(--accent-ink); background: var(--danger); border-color: var(--danger); }
+.section-del:hover { opacity: 1; color: var(--accent-ink); background: var(--danger); border-color: var(--danger); }
+.section-del.confirm { opacity: 1; color: var(--accent-ink); background: var(--danger); border-color: var(--danger); }
 
 .health-strip {
   padding: 8px var(--space-4); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px;
@@ -587,34 +673,25 @@ li.row-wrap.done .row-text {
 }
 @media (prefers-reduced-motion: reduce) { .check.celebrate { animation: none; } }
 
-/* ---- Sidebar collapses to a horizontal top bar on narrower / shorter
-   viewports — tablet portrait and phones. No new JS state (no slide-out
-   drawer); the same #tabs/#add-page-form/#settings-btn elements just get
-   restyled into a horizontal strip, so nothing the test suite reaches
-   into (ids, classes) has to move again at this breakpoint. ---- */
+/* ---- Mobile navigation: below 860px the sidebar (desktop's always-visible
+   "home screen") is replaced entirely by #mobile-home, a full-screen list
+   picker, plus a slim back/settings bar at the top of whichever page is
+   open. No horizontal top tab bar anymore — see #mobile-home below for the
+   picker itself. ---- */
 @media (max-width: 860px) {
   .app-shell { flex-direction: column; min-height: 0; }
-  .sidebar {
-    position: static; height: auto; width: 100%; flex: none;
-    flex-direction: row; align-items: center; gap: var(--space-3);
-    padding: var(--space-3) var(--space-4); border-right: none; border-bottom: 1px solid var(--border);
-    overflow-x: auto; overflow-y: visible;
-  }
-  .sidebar-brand { flex-shrink: 0; }
-  .tabs { flex-direction: row; flex: 1; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  /* .tab's base rule sets width:100% for the vertical sidebar list — in
-     this horizontal strip that would stretch each tab to fill the whole
-     row (100% of .tabs' width) instead of sizing to its own label, so
-     it has to be reset back to content-sized here. */
-  .tab { width: auto; flex-shrink: 0; white-space: nowrap; }
-  .tab-add { width: 34px; flex-shrink: 0; }
-  .add-page-form {
-    position: absolute; left: var(--space-4); right: var(--space-4); top: 100%; margin-top: 4px; z-index: 5;
-    flex-direction: row; flex-wrap: wrap; box-shadow: var(--shadow-md);
-  }
-  .sidebar-footer { margin-top: 0; padding-top: 0; border-top: none; flex-shrink: 0; }
-  .sidebar-settings-btn { width: auto; white-space: nowrap; }
+  .sidebar { display: none; }
   .app-main { padding: var(--space-5) var(--space-4) 48px; }
+
+  .mobile-home:not([hidden]) {
+    display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 3;
+    background: var(--bg); overflow-y: auto; padding: var(--space-5) var(--space-4) var(--space-6);
+  }
+  /* Only at mobile widths does #mobile-home actually cover the screen, so
+     the whole app-shell (sidebar + page content) only needs to step aside
+     here, not on desktop where .mobile-home is already display:none. */
+  .mobile-home:not([hidden]) ~ .app-shell { display: none; }
+  .mobile-page-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 }
 
 @media (max-width: 420px) {
@@ -703,26 +780,17 @@ li.row-wrap.done .row-text {
 .calendar-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
 .calendar-month-label { font-family: var(--font-heading); font-size: var(--text-md); font-weight: 700; min-width: 12ch; text-align: center; }
 
-.calendar-quickadd {
-  display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
-  background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: var(--space-3);
+.calendar-fullscreen-back {
+  font: inherit; font-size: var(--text-sm); font-weight: 600; color: var(--muted); background: transparent;
+  border: none; padding: 6px 4px; cursor: pointer;
 }
-.calendar-quickadd input[type="text"] { flex: 1; min-width: 160px; }
-.calendar-quickadd input[type="text"], .calendar-quickadd input[type="date"], .calendar-quickadd input[type="time"] {
-  font: inherit; font-size: 14px; color: var(--text); background: var(--panel-2);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 10px;
-}
-.calendar-quickadd button {
-  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent-ink); background: var(--accent);
-  border: none; border-radius: var(--radius-sm); padding: 9px 15px; cursor: pointer;
-}
-.calendar-quickadd button:hover { filter: brightness(1.06); }
-.calendar-quickadd select.calendar-quickadd-recur {
-  font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 10px;
-}
+.calendar-fullscreen-back:hover { color: var(--accent); }
+
+/* Reused by the "Add event" modal's custom-days row (see index.html) even
+   though the form it was originally built for is gone — same checkbox
+   layout either way. */
 .calendar-quickadd-custom-days {
-  flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px 14px; padding-top: 2px;
+  display: flex; flex-wrap: wrap; gap: 6px 14px; padding-top: 2px;
 }
 
 .calendar-grid {
@@ -740,6 +808,10 @@ li.row-wrap.done .row-text {
 .calendar-day {
   background: var(--panel-2); height: 118px; padding: 7px 6px; display: flex; flex-direction: column;
   gap: 4px; cursor: pointer; overflow: hidden; position: relative; transition: background 0.1s var(--ease);
+  /* A tap-and-hold is how mobile opens the "Add event" modal (see ui.js) —
+     without these, the device's own text-selection / callout menu kicks in
+     during the hold instead, fighting the gesture. */
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
 }
 .calendar-day:hover { background: var(--panel); }
 .calendar-day.outside-month { background: var(--panel); opacity: 0.5; }
@@ -769,6 +841,48 @@ li.row-wrap.done .row-text {
   opacity: 0.6;
 }
 .calendar-day-view:hover { opacity: 1; color: var(--accent); background: var(--panel); }
+
+/* ---- Family Calendar full-screen takeover (closest to Apple Calendar on
+   iPhone) — at EVERY viewport width, not just mobile. While active
+   (body.calendar-fullscreen, toggled in render()) the sidebar, page-head,
+   toolbar and footer are hidden outright, and .calendar-view itself takes
+   over the whole viewport as a fixed overlay with its own minimal top bar
+   (see the "Lists" back button built in renderCalendarGrid). Exiting
+   (tapping that back button) just removes this class again — the sidebar
+   or mobile back button that reappears is the "way back to other lists"
+   from here, not a page navigation in its own right. ---- */
+body.calendar-fullscreen .sidebar,
+body.calendar-fullscreen .mobile-page-bar,
+body.calendar-fullscreen .page-head,
+body.calendar-fullscreen .toolbar,
+body.calendar-fullscreen .list-search,
+body.calendar-fullscreen .review-panel,
+body.calendar-fullscreen .footer-note,
+body.calendar-fullscreen #status {
+  display: none !important;
+}
+body.calendar-fullscreen .app-main { padding: 0; }
+body.calendar-fullscreen main { max-width: none; }
+
+.calendar-view.is-fullscreen {
+  position: fixed; inset: 0; z-index: 2; background: var(--bg);
+  padding: var(--space-3) var(--space-3) env(safe-area-inset-bottom, var(--space-3));
+}
+.calendar-view.is-fullscreen .calendar-toolbar {
+  background: transparent; border: none; box-shadow: none; padding: var(--space-2) var(--space-1);
+}
+/* Rows stretch to fill whatever height is left, instead of the fixed
+   118px cells used everywhere else — the whole point of "full screen" is
+   that the grid actually fills the screen, Apple-Calendar-style. Cells
+   still never grow or shrink based on how many events are in them, same
+   as the fixed-height version — minmax(0, …) is what keeps that true:
+   a plain 1fr row has an implicit "auto" minimum, so a busier cell's
+   content would otherwise be able to stretch its whole row taller than
+   the others. */
+.calendar-view.is-fullscreen .calendar-grid {
+  flex: 1; min-height: 0; grid-template-rows: auto repeat(6, minmax(0, 1fr));
+}
+.calendar-view.is-fullscreen .calendar-day { height: 100%; }
 
 .calendar-event-chip {
   display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--border);
@@ -816,8 +930,6 @@ li.row-wrap.done .row-text {
   .calendar-toolbar { padding: var(--space-2); }
   .calendar-nav-btn { width: 38px; height: 38px; font-size: 17px; }
   .calendar-month-label { font-size: var(--text-base); min-width: 0; }
-  .calendar-quickadd { padding: var(--space-3) 10px; }
-  .calendar-quickadd input[type="date"], .calendar-quickadd input[type="time"] { flex: 1 1 128px; }
 
   .calendar-grid { border-radius: var(--radius-md); gap: 1px; }
   .calendar-weekday { font-size: 10px; padding: 7px 2px; letter-spacing: 0.04em; }
