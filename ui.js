@@ -5,12 +5,17 @@
 
 import {
   STALE_DAYS, daysUntil, daysSince, activityText,
-  dueBadgeInfo, recurrenceValue, recurrenceFromValue, recurrenceLabel, advanceDate, fmtDate, todayStr
+  dueBadgeInfo, recurrenceValue, recurrenceFromValue, recurrenceLabel, advanceDate, fmtDate, todayStr,
+  occurrencesInRange, addDaysStr
 } from "./dates.js";
 import { listenOnce, parseCommand, findBestMatch } from "./voice.js";
 import { getHolidaysForYears } from "./holidays.js";
 import { guessCategory } from "./categorize.js";
 import { pickInk } from "./themes.js";
+import { computeTodayItems } from "./today.js";
+import { searchEverything, highlightRuns } from "./search.js";
+import { formatMoney, normalizeCurrency } from "./money.js";
+import { isWelcomeDismissed, setWelcomeDismissed, isFreshState, buildSampleData, buildWelcomeCard } from "./welcome.js";
 import * as sync from "./sync.js";
 
 const LS_COLLAPSED_PREFIX = "ventureTasks:collapsed:";
@@ -71,14 +76,6 @@ function setStoredActivePage(id) {
   try { window.localStorage.setItem(LS_ACTIVE_PAGE, id); } catch (e) { /* non-fatal */ }
 }
 
-// "$450" for a whole dollar amount, "$450.50" for cents, with thousand
-// separators — null/0/unset all render as nothing (no badge, no stat).
-function formatMoney(n) {
-  if (n === null || n === undefined || n === "") return null;
-  const num = Number(n);
-  if (!isFinite(num) || num <= 0) return null;
-  return "$" + num.toLocaleString(undefined, { minimumFractionDigits: Number.isInteger(num) ? 0 : 2, maximumFractionDigits: 2 });
-}
 
 export function initUI(store, ai) {
   const tabsEl = document.getElementById("tabs");
@@ -104,6 +101,10 @@ export function initUI(store, ai) {
   const mobileAddPageCancel = document.getElementById("mobile-add-page-cancel");
   const mobileBackBtn = document.getElementById("mobile-back-btn");
   const mobilePageSettingsBtn = document.getElementById("mobile-page-settings-btn");
+  const mobileHomeTodayToggle = document.getElementById("mobile-home-today-toggle");
+  const mobileHomeTodayBody = document.getElementById("mobile-home-today-body");
+  const mobileHomeTodayCount = document.getElementById("mobile-home-today-count");
+  const mobileHomeTodaySection = document.getElementById("mobile-home-today");
 
   const sectionsEl = document.getElementById("sections");
   const summaryEl = document.getElementById("summary");
@@ -229,12 +230,20 @@ export function initUI(store, ai) {
   // list never silently carries over and filters a different one.
   let searchQuery = "";
   let searchContextPageId = null;
+  // Set when a global-search result is opened; consumed at the end of the
+  // next render (the row only exists once that render has built it).
+  let pendingRevealTaskId = null;
 
   // Plain case-insensitive substring match — used for the live filter as
   // you type, since it needs to be predictable (what you see is what's
   // really in the text) rather than forgiving. The fuzzier findBestMatch
   // (same matcher voice commands use) is reserved for deciding what Enter
   // does, where "fuzzy enough to find the item" is exactly the point.
+  // The user's chosen currency for client values (Settings → Appearance).
+  function currencyCode() {
+    return normalizeCurrency(store.getSettings().currency);
+  }
+
   function taskMatchesQuery(text, query) {
     return (text || "").toLowerCase().includes(query.toLowerCase());
   }
@@ -450,7 +459,7 @@ export function initUI(store, ai) {
       clientBadge.textContent = "👤 " + task.client;
       row.appendChild(clientBadge);
     }
-    const money = formatMoney(task.value);
+    const money = formatMoney(task.value, currencyCode());
     if (money) {
       const valueBadge = document.createElement("span");
       valueBadge.className = "value-badge";
@@ -459,79 +468,124 @@ export function initUI(store, ai) {
     }
   }
 
-  // --- Today view: everything overdue or due today, across every to-do
-  // page (not just whichever one happens to be active). Kept entirely
-  // separate from the AI weekly review — no AI connection needed, always
-  // available — and recomputed on every render so checking something off
-  // from in here (or anywhere else) is reflected immediately.
-  function computeTodayItems(state) {
-    const pageById = {};
-    state.pages.forEach((p) => { pageById[p.id] = p; });
-    const sectionById = {};
-    state.sections.forEach((s) => { sectionById[s.id] = s; });
+  // --- Today view: overdue, due today, daily tasks, and today's calendar
+  // events, across every page (not just whichever one happens to be
+  // active). What belongs in it is computed by today.js (pure, shared with
+  // reminders and the app-icon badge); this just draws it. Recomputed on
+  // every render so checking something off anywhere is reflected
+  // immediately. No AI connection needed — always available.
 
-    const overdue = [];
-    const dueToday = [];
-    state.tasks.forEach((t) => {
-      if (t.done || !t.dueDate) return;
-      const page = pageById[t.pageId];
-      if (!page || page.type === "grocery") return;
-      const diff = daysUntil(t.dueDate);
-      if (diff === null) return;
-      const entry = { task: t, page: page, section: sectionById[t.sectionId] || null, diff: diff };
-      if (diff < 0) overdue.push(entry);
-      else if (diff === 0) dueToday.push(entry);
-    });
-    overdue.sort((a, b) => a.diff - b.diff); // most overdue first
-    dueToday.sort((a, b) => (a.page.name || "").localeCompare(b.page.name || ""));
-    return { overdue: overdue, dueToday: dueToday };
+  // Switches to a page from anywhere (Today, global search, a linked-list
+  // tag) — also leaves the mobile home screen, since on a phone the
+  // shortcut is useless if you land back on the list picker.
+  function jumpToPage(pageId) {
+    activePageId = pageId;
+    setStoredActivePage(pageId);
+    mobileHome = false;
+    todayPanel.hidden = true;
+    render(store.getState());
   }
 
-  function buildTodayRow(entry) {
+  function buildTodayRow(entry, container) {
     const task = entry.task, page = entry.page, section = entry.section;
+    const isEvent = page.type === "calendar";
     const row = document.createElement("div");
-    row.className = "today-row";
+    row.className = "today-row" + (task.done && !entry.virtual ? " is-done" : "") + (isEvent ? " is-event" : "") + (task.isDaily ? " is-daily" : "");
 
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.className = "check";
-    check.setAttribute("aria-label", "Mark \"" + task.text + "\" as done");
-    check.addEventListener("change", () => store.toggleTaskDone(task.id));
-    row.appendChild(check);
+    if (entry.virtual) {
+      // Today's occurrence of a repeating event — nothing real to check
+      // off here (only its original date is a real row), same as the grid.
+      const glyph = document.createElement("span");
+      glyph.className = "today-row-glyph";
+      glyph.textContent = "↻";
+      glyph.title = "Repeating event";
+      row.appendChild(glyph);
+    } else {
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "check";
+      check.checked = !!task.done;
+      check.setAttribute("aria-label", "Mark \"" + task.text + "\" as " + (task.done ? "not done" : "done"));
+      check.addEventListener("change", () => store.toggleTaskDone(task.id));
+      row.appendChild(check);
+    }
+
+    if (isEvent && task.eventTime) {
+      const time = document.createElement("span");
+      time.className = "today-row-time";
+      time.textContent = formatEventTime(task.eventTime);
+      row.appendChild(time);
+    }
 
     const text = document.createElement("span");
     text.className = "today-row-text";
     text.textContent = task.text || "";
     row.appendChild(text);
 
-    const due = dueBadgeInfo(task.dueDate);
-    if (due) {
-      const dueBadge = document.createElement("span");
-      dueBadge.className = "due-badge" + (due.cls ? " " + due.cls : "");
-      dueBadge.textContent = due.text;
-      row.appendChild(dueBadge);
+    if (task.isDaily) {
+      const dailyBadge = document.createElement("span");
+      dailyBadge.className = "today-daily-badge";
+      dailyBadge.textContent = "☀ Daily";
+      row.appendChild(dailyBadge);
+    } else if (!isEvent) {
+      const due = dueBadgeInfo(task.dueDate);
+      if (due) {
+        const dueBadge = document.createElement("span");
+        dueBadge.className = "due-badge" + (due.cls ? " " + due.cls : "");
+        dueBadge.textContent = due.text;
+        row.appendChild(dueBadge);
+      }
     }
     appendClientValueBadges(row, task);
 
     const pageTag = document.createElement("button");
     pageTag.type = "button";
     pageTag.className = "today-page-tag";
-    pageTag.textContent = (page.name || "Untitled") + (section ? " · " + (section.name || "Untitled") : "");
+    pageTag.textContent = (page.name || "Untitled") + (section && !isEvent ? " · " + (section.name || "Untitled") : "");
     pageTag.title = "Jump to " + (page.name || "Untitled");
     pageTag.addEventListener("click", () => {
-      activePageId = page.id;
-      setStoredActivePage(page.id);
-      todayPanel.hidden = true;
-      render(store.getState());
+      if (isEvent) {
+        const now = new Date();
+        setCalendarViewMonth(page.id, now.getFullYear(), now.getMonth());
+      }
+      jumpToPage(page.id);
     });
     row.appendChild(pageTag);
 
-    todayBody.appendChild(row);
+    container.appendChild(row);
+  }
+
+  // Fills `container` with the grouped Today list. Shared by the Today
+  // panel (desktop, and inside a page on mobile) and the mobile home
+  // screen's own Today block.
+  function fillTodayList(container, items) {
+    container.innerHTML = "";
+    const anything = items.overdue.length + items.dueToday.length + items.daily.length + items.events.length;
+    if (anything === 0) {
+      const empty = document.createElement("div");
+      empty.className = "today-empty";
+      empty.textContent = "Nothing overdue or due today across any of your pages.";
+      container.appendChild(empty);
+      return;
+    }
+    function buildGroup(title, entries, countText) {
+      if (!entries.length) return;
+      const groupTitle = document.createElement("div");
+      groupTitle.className = "today-group-title";
+      groupTitle.textContent = title + " (" + (countText || entries.length) + ")";
+      container.appendChild(groupTitle);
+      entries.forEach((e) => buildTodayRow(e, container));
+    }
+    buildGroup("Overdue", items.overdue);
+    buildGroup("Due today", items.dueToday);
+    const dailyDone = items.daily.filter((e) => e.task.done).length;
+    buildGroup("Daily", items.daily, dailyDone + " of " + items.daily.length + " done");
+    buildGroup("Events today", items.events);
   }
 
   function renderTodayPanel(state) {
     const items = computeTodayItems(state);
-    const total = items.overdue.length + items.dueToday.length;
+    const total = items.pendingCount;
 
     // The count badge on the button itself stays current whether or not the
     // panel is open, so it's useful at a glance without opening anything.
@@ -548,33 +602,14 @@ export function initUI(store, ai) {
     }
 
     if (todayPanel.hidden) return; // no need to build the body while closed
-
-    todayBody.innerHTML = "";
-    if (total === 0) {
-      const empty = document.createElement("div");
-      empty.className = "today-empty";
-      empty.textContent = "Nothing overdue or due today across any of your pages.";
-      todayBody.appendChild(empty);
-      return;
-    }
-
-    function buildGroup(title, entries) {
-      if (!entries.length) return;
-      const groupTitle = document.createElement("div");
-      groupTitle.className = "today-group-title";
-      groupTitle.textContent = title + " (" + entries.length + ")";
-      todayBody.appendChild(groupTitle);
-      entries.forEach(buildTodayRow);
-    }
-
-    buildGroup("Overdue", items.overdue);
-    buildGroup("Due today", items.dueToday);
+    fillTodayList(todayBody, items);
   }
 
   function buildTaskRow(task, sectionId, sectionName, otherSections, isGrocery, siblingList, idx) {
     const beforeTaskIdForDrop = siblingList[idx + 1] ? siblingList[idx + 1].id : null;
     const wrap = document.createElement("li");
     wrap.className = "row-wrap" + (task.done ? " done" : "") + (!isGrocery && task.isSomeday ? " someday" : "");
+    wrap.dataset.taskId = task.id;
     wrap.draggable = true;
     wrap.style.borderLeftColor = task.color || "transparent";
 
@@ -916,7 +951,7 @@ export function initUI(store, ai) {
     valueField.className = "detail-field";
     const valueLabel = document.createElement("span");
     valueLabel.className = "detail-label";
-    valueLabel.textContent = "Value";
+    valueLabel.textContent = "Value (" + currencyCode() + ")";
     const valueInput = document.createElement("input");
     valueInput.type = "number";
     valueInput.min = "0";
@@ -1290,6 +1325,111 @@ export function initUI(store, ai) {
     calendarDayOverlay.hidden = false;
   }
 
+  // How many days the agenda view looks ahead.
+  const AGENDA_DAYS = 56;
+  const LS_CAL_MODE_PREFIX = "ventureTasks:calMode:";
+
+  // "month" (the grid) or "agenda" (a chronological list of upcoming
+  // days) — remembered per calendar page, per browser.
+  function getCalendarMode(pageId) {
+    try { return window.localStorage.getItem(LS_CAL_MODE_PREFIX + pageId) === "agenda" ? "agenda" : "month"; } catch (e) { return "month"; }
+  }
+  function setCalendarMode(pageId, mode) {
+    try {
+      if (mode === "agenda") window.localStorage.setItem(LS_CAL_MODE_PREFIX + pageId, "agenda");
+      else window.localStorage.removeItem(LS_CAL_MODE_PREFIX + pageId);
+    } catch (e) { /* per-browser convenience only */ }
+  }
+
+  // Everything that shows on a calendar between startStr and endStr,
+  // keyed by date: the calendar's own events (editable), due-dated tasks
+  // from linked lists (read-only, with a jump-to-source tag), and — for
+  // anything repeating — a read-only "virtual" entry on every later date
+  // its recurrence lands on. Completing or editing a repeating event only
+  // ever happens from its original (anchor) date. Shared by the month grid,
+  // the agenda, and the day popup so all three always agree.
+  function collectCalendarEntries(state, ownTasks, linkedPages, startStr, endStr) {
+    const byDate = {};
+    const push = (d, entry) => { (byDate[d] = byDate[d] || []).push(entry); };
+    ownTasks.filter((t) => t.dueDate).forEach((t) => {
+      push(t.dueDate, { task: t, editable: true });
+      occurrencesInRange(t, startStr, endStr).forEach((d) => push(d, { task: t, editable: false, virtual: true }));
+    });
+    linkedPages.forEach((lp) => {
+      state.tasks.filter((t) => t.pageId === lp.id && t.dueDate).forEach((t) => {
+        const base = { task: t, editable: false, pageName: lp.name || "Untitled", pageId: lp.id };
+        push(t.dueDate, base);
+        occurrencesInRange(t, startStr, endStr).forEach((d) => push(d, Object.assign({}, base, { virtual: true })));
+      });
+    });
+    Object.keys(byDate).forEach((d) => {
+      byDate[d].sort((a, b) => (a.task.eventTime || "99:99").localeCompare(b.task.eventTime || "99:99"));
+    });
+    return byDate;
+  }
+
+  // Chronological list of the next AGENDA_DAYS days that have anything on
+  // them — far easier to scan on a phone than a dense month grid.
+  function renderCalendarAgenda(container, page, byDate, holidaysByDate, startStr) {
+    const list = document.createElement("div");
+    list.className = "calendar-agenda";
+    const tomorrow = addDaysStr(startStr, 1);
+    let shownDays = 0;
+    for (let i = 0; i < AGENDA_DAYS; i++) {
+      const dateStr = addDaysStr(startStr, i);
+      const entries = byDate[dateStr] || [];
+      const holidayName = holidaysByDate[dateStr];
+      if (!entries.length && !holidayName) continue;
+      shownDays++;
+
+      const day = document.createElement("section");
+      day.className = "calendar-agenda-day" + (dateStr === startStr ? " is-today" : "");
+      day.dataset.date = dateStr;
+
+      const head = document.createElement("div");
+      head.className = "calendar-agenda-date";
+      const d = new Date(dateStr + "T00:00:00");
+      const rel = dateStr === startStr ? "Today" : dateStr === tomorrow ? "Tomorrow" : null;
+      const full = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      const strong = document.createElement("strong");
+      strong.textContent = rel || full;
+      head.appendChild(strong);
+      if (rel) {
+        const sub = document.createElement("span");
+        sub.className = "calendar-agenda-date-sub";
+        sub.textContent = full;
+        head.appendChild(sub);
+      }
+      if (holidayName) {
+        const hol = document.createElement("span");
+        hol.className = "calendar-agenda-holiday";
+        hol.textContent = holidayName;
+        head.appendChild(hol);
+      }
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "calendar-agenda-add";
+      addBtn.textContent = "+";
+      addBtn.setAttribute("aria-label", "Add an event on " + full);
+      addBtn.addEventListener("click", () => openCalendarAddEvent(page.id, dateStr));
+      head.appendChild(addBtn);
+      day.appendChild(head);
+
+      const events = document.createElement("div");
+      events.className = "calendar-agenda-events";
+      entries.forEach((entry) => events.appendChild(buildCalendarEventChip(entry)));
+      day.appendChild(events);
+      list.appendChild(day);
+    }
+    if (shownDays === 0) {
+      const empty = document.createElement("p");
+      empty.className = "calendar-agenda-empty";
+      empty.textContent = "Nothing scheduled in the next " + (AGENDA_DAYS / 7) + " weeks. Tap “+ Event” to add something.";
+      list.appendChild(empty);
+    }
+    container.appendChild(list);
+  }
+
   function renderCalendarGrid(state, page, ownSections, ownTasks) {
     const view = getCalendarViewMonth(page.id);
     const year = view.year, month = view.month;
@@ -1309,52 +1449,17 @@ export function initUI(store, ai) {
     const gridEndStr = fmtDate(gridEnd);
     const today = todayStr();
 
-    const byDate = {};
-    ownTasks.filter((t) => t.dueDate).forEach((t) => {
-      (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: true });
-    });
-    linkedPages.forEach((lp) => {
-      state.tasks.filter((t) => t.pageId === lp.id && t.dueDate).forEach((t) => {
-        (byDate[t.dueDate] = byDate[t.dueDate] || []).push({ task: t, editable: false, pageName: lp.name || "Untitled", pageId: lp.id });
-      });
-    });
-
-    // Recurring calendar events (and recurring tasks pulled in from a
-    // linked list) get virtual occurrences projected onto every other
-    // matching date in the visible grid, in addition to their one real
-    // "anchor" row — e.g. a weekly "Trash day" event shows on every
-    // Tuesday of the month, not just the Tuesday it was created on. These
-    // projections are display-only: there's no real task behind them, so
-    // buildCalendarEventChip (via entry.editable === false) renders them
-    // with no checkbox/edit/delete — completing or editing the event only
-    // ever happens from its anchor date's own chip. The 400-step cap is
-    // just a safety backstop against a degenerate recurrence (e.g.
-    // "custom" with no days picked, which never actually advances) —
-    // ordinary patterns hit the grid's edge long before that.
-    function projectOccurrences(t, pageName, pageId) {
-      if (!t.recurrence || !t.dueDate) return;
-      let cursor = t.dueDate;
-      for (let i = 0; i < 400; i++) {
-        const next = advanceDate(cursor, t.recurrence);
-        if (next === cursor) return; // degenerate recurrence — nothing to advance to
-        cursor = next;
-        if (cursor > gridEndStr) return;
-        const entry = { task: t, editable: false, virtual: true };
-        if (pageName) { entry.pageName = pageName; entry.pageId = pageId; }
-        (byDate[cursor] = byDate[cursor] || []).push(entry);
-      }
-    }
-    ownTasks.filter((t) => t.dueDate && t.recurrence).forEach((t) => projectOccurrences(t, null, null));
-    linkedPages.forEach((lp) => {
-      state.tasks.filter((t) => t.pageId === lp.id && t.dueDate && t.recurrence).forEach((t) => projectOccurrences(t, lp.name || "Untitled", lp.id));
-    });
-
-    Object.keys(byDate).forEach((d) => {
-      byDate[d].sort((a, b) => (a.task.eventTime || "99:99").localeCompare(b.task.eventTime || "99:99"));
-    });
+    const mode = getCalendarMode(page.id);
+    const agendaStartStr = today;
+    const agendaEndStr = addDaysStr(today, AGENDA_DAYS - 1);
+    // The popup is also opened from the agenda (via a date header), so
+    // collect across both windows whichever mode is showing.
+    const rangeStart = mode === "agenda" ? agendaStartStr : gridStartStr;
+    const rangeEnd = mode === "agenda" ? agendaEndStr : gridEndStr;
+    const byDate = collectCalendarEntries(state, ownTasks, linkedPages, rangeStart, rangeEnd);
 
     const container = document.createElement("div");
-    container.className = "calendar-view" + (calendarFullscreen ? " is-fullscreen" : "");
+    container.className = "calendar-view" + (calendarFullscreen ? " is-fullscreen" : "") + (mode === "agenda" ? " is-agenda" : "");
 
     const toolbar = document.createElement("div");
     toolbar.className = "calendar-toolbar";
@@ -1419,12 +1524,61 @@ export function initUI(store, ai) {
       render(store.getState());
     });
 
-    nav.appendChild(prevBtn);
-    nav.appendChild(label);
-    nav.appendChild(nextBtn);
+    if (mode === "agenda") {
+      const agendaLabel = document.createElement("span");
+      agendaLabel.className = "calendar-month-label";
+      agendaLabel.textContent = "Next " + (AGENDA_DAYS / 7) + " weeks";
+      nav.appendChild(agendaLabel);
+    } else {
+      nav.appendChild(prevBtn);
+      nav.appendChild(label);
+      nav.appendChild(nextBtn);
+    }
     toolbar.appendChild(nav);
-    toolbar.appendChild(todayNavBtn);
+
+    const toolbarRight = document.createElement("div");
+    toolbarRight.className = "calendar-toolbar-right";
+
+    const modeToggle = document.createElement("div");
+    modeToggle.className = "calendar-mode-toggle";
+    modeToggle.setAttribute("role", "group");
+    modeToggle.setAttribute("aria-label", "Calendar view");
+    [["month", "Month"], ["agenda", "Agenda"]].forEach(([value, text]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "calendar-mode-btn" + (mode === value ? " active" : "");
+      b.dataset.mode = value;
+      b.textContent = text;
+      b.setAttribute("aria-pressed", String(mode === value));
+      b.addEventListener("click", () => {
+        if (mode === value) return;
+        setCalendarMode(page.id, value);
+        render(store.getState());
+      });
+      modeToggle.appendChild(b);
+    });
+    toolbarRight.appendChild(modeToggle);
+
+    const addEventBtn = document.createElement("button");
+    addEventBtn.type = "button";
+    addEventBtn.className = "primary-btn calendar-add-event-btn";
+    addEventBtn.textContent = "+ Event";
+    addEventBtn.title = "Add an event (or double-click / press and hold a day)";
+    addEventBtn.addEventListener("click", () => openCalendarAddEvent(page.id, calendarSelectedDate || today));
+    toolbarRight.appendChild(addEventBtn);
+
+    if (mode !== "agenda") toolbarRight.appendChild(todayNavBtn);
+    toolbar.appendChild(toolbarRight);
     container.appendChild(toolbar);
+
+    if (mode === "agenda") {
+      const agendaYears = [Number(agendaStartStr.slice(0, 4)), Number(agendaEndStr.slice(0, 4))];
+      const agendaHolidays = getHolidaysForYears(agendaYears);
+      renderCalendarAgenda(container, page, byDate, agendaHolidays, agendaStartStr);
+      sectionsEl.appendChild(container);
+      renderCalendarDayPopup(byDate, agendaHolidays);
+      return;
+    }
 
     const grid = document.createElement("div");
     grid.className = "calendar-grid";
@@ -1597,7 +1751,68 @@ export function initUI(store, ai) {
   // above). Rebuilt on every render, same pattern as renderTabs, so it's
   // never stale even though it's rendered unconditionally regardless of
   // whether it's actually visible right now.
+  const mobileLayoutQuery = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 860px)") : null;
+  if (mobileLayoutQuery && typeof mobileLayoutQuery.addEventListener === "function") {
+    mobileLayoutQuery.addEventListener("change", () => render(store.getState()));
+  }
+
+  // --- first-run welcome card (welcome.js) ---
+  // Shows on its own only for a brand-new user; "Show the welcome tour
+  // again" in Settings forces it back for anyone.
+  let forceWelcome = false;
+  function welcomeVisible(state) {
+    return forceWelcome || (!isWelcomeDismissed() && isFreshState(state));
+  }
+  function dismissWelcome() {
+    setWelcomeDismissed(true);
+    forceWelcome = false;
+    render(store.getState());
+  }
+  function loadSampleSetup() {
+    setWelcomeDismissed(true);
+    forceWelcome = false;
+    const firstPageId = store.loadSample(buildSampleData());
+    if (firstPageId) {
+      activePageId = firstPageId;
+      setStoredActivePage(firstPageId);
+    }
+    render(store.getState());
+    setStatus("Sample setup loaded — have a look around. Delete anything you don't need.");
+  }
+  function welcomeCardFor(state, compact) {
+    return buildWelcomeCard({ compact, hasData: !isFreshState(state), onSample: loadSampleSetup, onDismiss: dismissWelcome });
+  }
+
+  function isMobileTodayCollapsed() {
+    try { return window.localStorage.getItem("ventureTasks:mobileTodayCollapsed") === "1"; } catch (e) { return false; }
+  }
+
   function renderMobileHome(state) {
+    // The Today block is only built while the mobile layout is actually
+    // active — on desktop the home screen is CSS-hidden, and a second,
+    // invisible copy of every Today row (checkboxes included) would just
+    // be dead weight in the DOM. mobileLayoutQuery's change listener
+    // re-renders when the window crosses the breakpoint.
+    const mobileWelcomeEl = document.getElementById("mobile-home-welcome");
+    mobileWelcomeEl.innerHTML = "";
+    if (mobileLayoutQuery && mobileLayoutQuery.matches && welcomeVisible(state)) {
+      mobileWelcomeEl.appendChild(welcomeCardFor(state, true));
+    }
+
+    const todayCollapsed = isMobileTodayCollapsed();
+    if (mobileLayoutQuery && mobileLayoutQuery.matches) {
+      const todayItems = computeTodayItems(state);
+      mobileHomeTodayCount.textContent = todayItems.pendingCount > 0 ? String(todayItems.pendingCount) : "";
+      mobileHomeTodayCount.hidden = todayItems.pendingCount === 0;
+      mobileHomeTodayToggle.setAttribute("aria-expanded", String(!todayCollapsed));
+      mobileHomeTodaySection.classList.toggle("is-collapsed", todayCollapsed);
+      mobileHomeTodayBody.hidden = todayCollapsed;
+      if (!todayCollapsed) fillTodayList(mobileHomeTodayBody, todayItems);
+      else mobileHomeTodayBody.innerHTML = "";
+    } else {
+      mobileHomeTodayBody.innerHTML = "";
+    }
+
     const pages = state.pages.slice().sort((a, b) => a.order - b.order);
     mobileHomeListEl.innerHTML = "";
     if (pages.length === 0) {
@@ -1715,6 +1930,14 @@ export function initUI(store, ai) {
 
     sectionsEl.innerHTML = "";
     reviewBtn.hidden = isGrocery || isCalendar || !ai.isConfigured();
+
+    // Desktop shows the welcome card at the top of the page; on a phone it
+    // lives on the home screen instead (see renderMobileHome).
+    const welcomeSlot = document.getElementById("welcome-slot");
+    welcomeSlot.innerHTML = "";
+    if (!isCalendar && !(mobileLayoutQuery && mobileLayoutQuery.matches) && welcomeVisible(state)) {
+      welcomeSlot.appendChild(welcomeCardFor(state, false));
+    }
 
     if (isCalendar) {
       maybeResolveLinkedLists(page);
@@ -1862,7 +2085,7 @@ export function initUI(store, ai) {
           healthEl.className = "health-strip";
           healthEl.hidden = collapsed;
           healthEl.appendChild(document.createTextNode("Active " + health.active + " · Done this wk " + health.doneWeek));
-          const openValueText = formatMoney(health.openValue);
+          const openValueText = formatMoney(health.openValue, currencyCode());
           if (openValueText) {
             healthEl.appendChild(document.createTextNode(" · " + openValueText + " open"));
           }
@@ -1998,6 +2221,18 @@ export function initUI(store, ai) {
     // Cross-page, so it's recomputed from the whole store on every render —
     // not scoped to whichever page/section loop just ran above.
     renderTodayPanel(state);
+
+    // A global-search result was just opened: scroll its row into view and
+    // flash it so it's obvious which one it is.
+    if (pendingRevealTaskId) {
+      const target = sectionsEl.querySelector('[data-task-id="' + CSS.escape(pendingRevealTaskId) + '"]');
+      pendingRevealTaskId = null;
+      if (target) {
+        target.scrollIntoView({ block: "center" });
+        target.classList.add("search-flash");
+        setTimeout(() => target.classList.remove("search-flash"), 1800);
+      }
+    }
   }
 
   store.subscribe(render);
@@ -2132,6 +2367,15 @@ export function initUI(store, ai) {
 
   mobileBackBtn.addEventListener("click", () => {
     mobileHome = true;
+    render(store.getState());
+  });
+
+  mobileHomeTodayToggle.addEventListener("click", () => {
+    const next = !isMobileTodayCollapsed();
+    try {
+      if (next) window.localStorage.setItem("ventureTasks:mobileTodayCollapsed", "1");
+      else window.localStorage.removeItem("ventureTasks:mobileTodayCollapsed");
+    } catch (e) { /* per-browser convenience only */ }
     render(store.getState());
   });
 
@@ -2572,6 +2816,321 @@ export function initUI(store, ai) {
     reviewPanel.hidden = true;
     if (reviewCtl) reviewCtl.abort();
   });
+
+  // --- Search everything (every page at once) ---
+  const searchOverlay = document.getElementById("search-overlay");
+  const globalSearchInput = document.getElementById("global-search-input");
+  const globalSearchResults = document.getElementById("global-search-results");
+  const SEARCH_KIND_ICON = { tasks: "✓", grocery: "\u{1F6D2}", calendar: "\u{1F4C5}" };
+  let searchHits = [];
+  let searchActiveIdx = 0;
+
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  document.getElementById("global-search-kbd").textContent = isMac ? "⌘K" : "Ctrl K";
+
+  function appendHighlighted(el, text, query) {
+    highlightRuns(text, query).forEach((run) => {
+      if (run.hit) {
+        const m = document.createElement("mark");
+        m.textContent = run.text;
+        el.appendChild(m);
+      } else {
+        el.appendChild(document.createTextNode(run.text));
+      }
+    });
+  }
+
+  function renderSearchResults() {
+    const q = globalSearchInput.value.trim();
+    globalSearchResults.innerHTML = "";
+    // Keep each page's results together under one header: pages appear in
+    // order of their best match (the list arrives best-first), and results
+    // keep their rank order within a page.
+    const ranked = q ? searchEverything(store.getState(), q) : [];
+    const pageOrder = [];
+    const byPage = {};
+    ranked.forEach((h) => {
+      if (!byPage[h.page.id]) { byPage[h.page.id] = []; pageOrder.push(h.page.id); }
+      byPage[h.page.id].push(h);
+    });
+    searchHits = pageOrder.reduce((all, id) => all.concat(byPage[id]), []);
+    if (searchActiveIdx >= searchHits.length) searchActiveIdx = 0;
+    if (!q) {
+      const hint = document.createElement("p");
+      hint.className = "search-hint";
+      hint.textContent = "Find any task, grocery item, event, section, or page — or a client name.";
+      globalSearchResults.appendChild(hint);
+      return;
+    }
+    if (!searchHits.length) {
+      const none = document.createElement("p");
+      none.className = "search-hint";
+      none.textContent = "No matches for “" + q + "” anywhere.";
+      globalSearchResults.appendChild(none);
+      return;
+    }
+    let lastPageId = null;
+    searchHits.forEach((hit, idx) => {
+      if (hit.page.id !== lastPageId) {
+        lastPageId = hit.page.id;
+        const group = document.createElement("div");
+        group.className = "search-group-title";
+        group.textContent = (SEARCH_KIND_ICON[hit.page.type] || "") + " " + (hit.page.name || "Untitled");
+        globalSearchResults.appendChild(group);
+      }
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "search-result" + (idx === searchActiveIdx ? " active" : "") + (hit.task && hit.task.done ? " is-done" : "");
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(idx === searchActiveIdx));
+      row.dataset.idx = String(idx);
+
+      const main = document.createElement("span");
+      main.className = "search-result-main";
+      if (hit.kind === "task") {
+        const mark = document.createElement("span");
+        mark.className = "search-result-check";
+        mark.textContent = hit.task.done ? "☑" : "☐";
+        main.appendChild(mark);
+        const t = document.createElement("span");
+        t.className = "search-result-text";
+        appendHighlighted(t, hit.task.text || "Untitled", q);
+        main.appendChild(t);
+      } else {
+        const t = document.createElement("span");
+        t.className = "search-result-text";
+        appendHighlighted(t, hit.kind === "page" ? (hit.page.name || "Untitled") : (hit.section.name || "Untitled"), q);
+        main.appendChild(t);
+      }
+      row.appendChild(main);
+
+      const meta = document.createElement("span");
+      meta.className = "search-result-meta";
+      const bits = [];
+      if (hit.kind === "page") bits.push("Page");
+      else if (hit.kind === "section") bits.push(hit.page.type === "grocery" ? "Category" : "Section");
+      else {
+        if (hit.page.type !== "calendar" && hit.section) bits.push(hit.section.name || "Untitled");
+        if (hit.task.dueDate) bits.push(hit.page.type === "calendar" ? new Date(hit.task.dueDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : (dueBadgeInfo(hit.task.dueDate) || {}).text);
+        if (hit.task.client) bits.push("👤 " + hit.task.client);
+        const money = formatMoney(hit.task.value, currencyCode());
+        if (money) bits.push(money);
+      }
+      meta.textContent = bits.filter(Boolean).join(" · ");
+      row.appendChild(meta);
+
+      row.addEventListener("click", () => openSearchHit(hit));
+      row.addEventListener("mousemove", () => {
+        if (searchActiveIdx === idx) return;
+        searchActiveIdx = idx;
+        globalSearchResults.querySelectorAll(".search-result").forEach((el) => {
+          const on = Number(el.dataset.idx) === idx;
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-selected", String(on));
+        });
+      });
+      globalSearchResults.appendChild(row);
+    });
+  }
+
+  function openSearchHit(hit) {
+    closeGlobalSearch();
+    clearSearch();
+    const page = hit.page;
+    if (hit.kind === "section") {
+      setCollapsed(hit.section.id, false);
+    }
+    if (hit.kind === "task") {
+      const task = hit.task;
+      if (page.type === "calendar") {
+        if (task.dueDate) {
+          const d = new Date(task.dueDate + "T00:00:00");
+          setCalendarViewMonth(page.id, d.getFullYear(), d.getMonth());
+        }
+        // Jump straight to that day's detail popup, after the page switch
+        // (which closes any open popup) has happened.
+        jumpToPage(page.id);
+        if (task.dueDate) { calendarDayPopupDate = task.dueDate; render(store.getState()); }
+        return;
+      }
+      if (task.sectionId) setCollapsed(task.sectionId, false);
+      if (task.done && isHideDone(page.id)) {
+        setHideDone(page.id, false);
+        setStatus("Showing checked-off items so you can see “" + (task.text || "") + "”.");
+      }
+      pendingRevealTaskId = task.id;
+    }
+    jumpToPage(page.id);
+  }
+
+  function openGlobalSearch() {
+    searchOverlay.hidden = false;
+    globalSearchInput.value = "";
+    searchActiveIdx = 0;
+    renderSearchResults();
+    globalSearchInput.focus();
+  }
+  function closeGlobalSearch() { searchOverlay.hidden = true; }
+
+  globalSearchInput.addEventListener("input", () => { searchActiveIdx = 0; renderSearchResults(); });
+  globalSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!searchHits.length) return;
+      searchActiveIdx = (searchActiveIdx + (e.key === "ArrowDown" ? 1 : -1) + searchHits.length) % searchHits.length;
+      renderSearchResults();
+      const active = globalSearchResults.querySelector(".search-result.active");
+      if (active) active.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (searchHits[searchActiveIdx]) openSearchHit(searchHits[searchActiveIdx]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeGlobalSearch();
+    }
+  });
+  ["global-search-btn", "mobile-home-search-btn", "mobile-page-search-btn"].forEach((id) => {
+    document.getElementById(id).addEventListener("click", openGlobalSearch);
+  });
+  document.getElementById("search-close").addEventListener("click", closeGlobalSearch);
+  searchOverlay.addEventListener("click", (e) => { if (e.target === searchOverlay) closeGlobalSearch(); });
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      if (searchOverlay.hidden) openGlobalSearch(); else closeGlobalSearch();
+    }
+  });
+
+  document.getElementById("show-welcome-btn").addEventListener("click", () => {
+    document.getElementById("settings-overlay").hidden = true;
+    setWelcomeDismissed(false);
+    forceWelcome = true;
+    mobileHome = true; // on a phone the card lives on the home screen
+    const state = store.getState();
+    const page = activePage(state);
+    if (page && page.type === "calendar") {
+      // The card isn't shown on a calendar page; go to the first list.
+      const firstList = state.pages.slice().sort((a, b) => a.order - b.order).find((p) => p.type !== "calendar");
+      if (firstList) { activePageId = firstList.id; setStoredActivePage(firstList.id); }
+    }
+    render(store.getState());
+    const card = document.querySelector(".welcome-card");
+    if (card) card.scrollIntoView({ block: "start" });
+  });
+
+  // --- Recently deleted (trash) ---
+  const trashOverlay = document.getElementById("trash-overlay");
+  const trashList = document.getElementById("trash-list");
+  const trashEmptyBtn = document.getElementById("trash-empty-btn");
+  const sidebarTrashCount = document.getElementById("sidebar-trash-count");
+  const TRASH_KIND_ICON = { task: "✓", item: "\u{1F6D2}", event: "\u{1F4C5}", section: "▤", page: "\u{1F4C4}" };
+  const TRASH_KIND_NOUN = { task: "Task", item: "Item", event: "Event", section: "Section", page: "Page" };
+
+  function timeAgo(iso) {
+    const ms = Date.now() - Date.parse(iso);
+    if (!isFinite(ms) || ms < 60000) return "just now";
+    const min = Math.round(ms / 60000);
+    if (min < 60) return min + " min ago";
+    const hr = Math.round(min / 60);
+    if (hr < 24) return hr + " hr ago";
+    const days = Math.round(hr / 24);
+    return days === 1 ? "yesterday" : days + " days ago";
+  }
+
+  function renderTrash() {
+    const trash = store.getTrash();
+    sidebarTrashCount.textContent = trash.length ? String(trash.length) : "";
+    if (trashOverlay.hidden) return;
+    trashList.innerHTML = "";
+    trashEmptyBtn.hidden = trash.length === 0;
+    if (!trash.length) {
+      const empty = document.createElement("p");
+      empty.className = "trash-empty";
+      empty.textContent = "Nothing here. Anything you delete will show up here for 30 days.";
+      trashList.appendChild(empty);
+      return;
+    }
+    trash.forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "trash-row";
+      row.dataset.kind = entry.kind;
+
+      const icon = document.createElement("span");
+      icon.className = "trash-row-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = TRASH_KIND_ICON[entry.kind] || "•";
+      row.appendChild(icon);
+
+      const text = document.createElement("div");
+      text.className = "trash-row-text";
+      const name = document.createElement("span");
+      name.className = "trash-row-name";
+      name.textContent = entry.label || "Untitled";
+      text.appendChild(name);
+      const meta = document.createElement("span");
+      meta.className = "trash-row-meta";
+      const parts = [TRASH_KIND_NOUN[entry.kind] || "Item"];
+      if (entry.kind !== "page" && entry.pageName) parts.push("from " + entry.pageName);
+      if ((entry.kind === "page" || entry.kind === "section") && entry.itemCount) parts.push(entry.itemCount + " item" + (entry.itemCount === 1 ? "" : "s"));
+      parts.push(timeAgo(entry.deletedAt));
+      meta.textContent = parts.join(" · ");
+      text.appendChild(meta);
+      row.appendChild(text);
+
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "secondary-btn trash-restore-btn";
+      restore.textContent = "Restore";
+      restore.addEventListener("click", () => {
+        const restored = store.restoreFromTrash(entry.id);
+        if (!restored) return;
+        setStatus("Restored “" + (entry.label || "Untitled") + "”.");
+        // A whole page coming back: take you to it.
+        if (entry.kind === "page" && typeof restored === "string") { closeTrash(); jumpToPage(restored); }
+      });
+      row.appendChild(restore);
+
+      const forever = document.createElement("button");
+      forever.type = "button";
+      forever.className = "del-btn trash-forever-btn";
+      forever.textContent = "×";
+      forever.title = "Delete forever";
+      forever.setAttribute("aria-label", "Delete “" + (entry.label || "Untitled") + "” forever");
+      forever.addEventListener("click", () => store.deleteFromTrash(entry.id));
+      row.appendChild(forever);
+
+      trashList.appendChild(row);
+    });
+  }
+
+  function openTrash() {
+    document.getElementById("settings-overlay").hidden = true;
+    trashOverlay.hidden = false;
+    trashEmptyBtn.classList.remove("confirm");
+    trashEmptyBtn.textContent = "Empty trash";
+    renderTrash();
+  }
+  function closeTrash() { trashOverlay.hidden = true; }
+
+  document.getElementById("open-trash-btn").addEventListener("click", openTrash);
+  document.getElementById("settings-open-trash-btn").addEventListener("click", openTrash);
+  document.getElementById("trash-close").addEventListener("click", closeTrash);
+  document.getElementById("trash-done-btn").addEventListener("click", closeTrash);
+  trashOverlay.addEventListener("click", (e) => { if (e.target === trashOverlay) closeTrash(); });
+  // Same "click again to confirm" pattern as deleting a page or section.
+  trashEmptyBtn.addEventListener("click", () => {
+    if (!trashEmptyBtn.classList.contains("confirm")) {
+      trashEmptyBtn.classList.add("confirm");
+      trashEmptyBtn.textContent = "Delete everything here forever?";
+      setTimeout(() => { trashEmptyBtn.classList.remove("confirm"); trashEmptyBtn.textContent = "Empty trash"; }, 4000);
+      return;
+    }
+    trashEmptyBtn.classList.remove("confirm");
+    trashEmptyBtn.textContent = "Empty trash";
+    store.emptyTrash();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !trashOverlay.hidden) closeTrash(); });
+  store.subscribe(() => renderTrash());
 
   return { refresh: () => render(store.getState()) };
 }

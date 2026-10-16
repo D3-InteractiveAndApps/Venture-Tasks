@@ -8,6 +8,8 @@
 // whenever you want a calendar app to catch up. See README.md for the
 // reasoning.
 
+import { formatMoney } from "./money.js";
+
 function pad2(n) { return (n < 10 ? "0" : "") + n; }
 
 // YYYYMMDDTHHMMSSZ, UTC — used for DTSTAMP (when this file was generated).
@@ -69,7 +71,7 @@ function foldLine(line) {
 // Builds the full .ics text. Only open (not done) tasks with a due date on a
 // to-do page are included — grocery items never have due dates, and a done
 // task isn't "due" anymore in any way a calendar app should remind you of.
-export function buildIcsCalendar(pages, sections, tasks) {
+export function buildIcsCalendar(pages, sections, tasks, currency) {
   const pageById = {};
   (pages || []).forEach((p) => { pageById[p.id] = p; });
   const sectionById = {};
@@ -96,7 +98,7 @@ export function buildIcsCalendar(pages, sections, tasks) {
       if (page) descParts.push("Page: " + page.name);
       if (section) descParts.push("Section: " + section.name);
       if (t.client) descParts.push("Client: " + t.client);
-      if (t.value) descParts.push("Value: $" + t.value);
+      if (t.value) descParts.push("Value: " + (formatMoney(t.value, currency) || t.value));
 
       lines.push("BEGIN:VEVENT");
       lines.push(foldLine("UID:" + t.id + "@venture-tasks"));

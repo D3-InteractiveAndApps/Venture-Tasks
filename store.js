@@ -21,6 +21,10 @@
 //   over — see resetDailyTasks() below. The two are mutually exclusive on
 //   any one task; the UI enforces that by clearing whichever one the user
 //   isn't actively setting.)
+//   state.trash    — recently deleted, newest first: { id, kind: "task"|"item"|"event"|
+//                     "section"|"page", label, pageName, itemCount, deletedAt,
+//                     page (snapshot or null), sections: [...], tasks: [...] }
+//                     — restorable for 30 days (see addToTrash / restoreFromTrash).
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
@@ -75,8 +79,35 @@ function writeJson(key, value) {
 }
 
 function defaultData() {
-  return { pages: [], sections: [], tasks: [] };
+  return { pages: [], sections: [], tasks: [], trash: [] };
 }
+
+// Recently deleted: every user-initiated delete (a task/event, a whole
+// section, a whole page) is moved into state.trash instead of vanishing,
+// and can be restored for TRASH_DAYS days. Each entry carries snapshots of
+// the page and section it came from, so it can still be restored even if
+// its section/page was deleted afterward (they're recreated if missing).
+// Deletes that arrive from someone ELSE on a shared list (removeRemote*)
+// deliberately skip the trash — that was their action, not yours.
+const TRASH_DAYS = 30;
+const TRASH_MAX = 200;
+
+function purgeOldTrash() {
+  const cutoff = Date.now() - TRASH_DAYS * 86400000;
+  const before = state.trash.length;
+  state.trash = state.trash.filter((e) => {
+    const t = Date.parse(e.deletedAt);
+    return isFinite(t) && t >= cutoff;
+  });
+  return state.trash.length !== before;
+}
+
+function addToTrash(entry) {
+  state.trash.unshift(Object.assign({ id: uid(), deletedAt: nowIso() }, entry));
+  if (state.trash.length > TRASH_MAX) state.trash.length = TRASH_MAX;
+}
+
+function cloneJson(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
 
 // Brings any older or externally-sourced data (old single-page localStorage,
 // an export file, a row pulled down from Supabase) up to the current
@@ -114,7 +145,12 @@ function normalizeState(raw) {
   const fallbackPageId = pages[0] ? pages[0].id : null;
   tasks = tasks.map((t) => Object.assign({}, t, { pageId: sectionPageMap[t.sectionId] || t.pageId || fallbackPageId }));
 
-  return { pages, sections, tasks };
+  // Older data (and exports from before the trash existed) simply has none.
+  const trash = Array.isArray(raw.trash)
+    ? raw.trash.filter((e) => e && typeof e === "object" && e.id && Array.isArray(e.tasks) && Array.isArray(e.sections))
+    : [];
+
+  return { pages, sections, tasks, trash };
 }
 
 function dateOnly(iso) {
@@ -152,7 +188,8 @@ let state = normalizeState(rawLoadedData);
 // closed when that day rolled over) in the same write.
 const migratedOnLoad = JSON.stringify(rawLoadedData) !== JSON.stringify(state);
 const dailyResetOnLoad = resetDailyTasks();
-if (migratedOnLoad || dailyResetOnLoad) writeJson(DATA_KEY, state);
+const trashPurgedOnLoad = purgeOldTrash();
+if (migratedOnLoad || dailyResetOnLoad || trashPurgedOnLoad) writeJson(DATA_KEY, state);
 
 let settings = readJson(SETTINGS_KEY, { provider: "none", apiKey: "", model: "", font: "default", theme: {} });
 if (!settings.theme || typeof settings.theme !== "object") settings.theme = {};
@@ -225,7 +262,9 @@ export const store = {
   // day-rollover housekeeping, not something the user just did, so
   // Ctrl+Z shouldn't be able to "undo" a day actually passing.
   checkDailyReset() {
-    if (resetDailyTasks()) persist();
+    const reset = resetDailyTasks();
+    const purged = purgeOldTrash();
+    if (reset || purged) persist();
   },
 
   // --- pages ---
@@ -322,6 +361,19 @@ export const store = {
   deletePage(id) {
     if (state.pages.length <= 1) return false; // always keep at least one page
     pushUndo();
+    const page = findPage(id);
+    if (page) {
+      const pageTasks = state.tasks.filter((t) => t.pageId === id);
+      addToTrash({
+        kind: "page",
+        label: page.name || "Untitled",
+        pageName: page.name || "Untitled",
+        itemCount: pageTasks.length,
+        page: cloneJson(page),
+        sections: cloneJson(state.sections.filter((s) => s.pageId === id)),
+        tasks: cloneJson(pageTasks)
+      });
+    }
     state.pages = state.pages.filter((p) => p.id !== id);
     state.sections = state.sections.filter((s) => s.pageId !== id);
     state.tasks = state.tasks.filter((t) => t.pageId !== id);
@@ -373,6 +425,20 @@ export const store = {
 
   deleteSection(id) {
     pushUndo();
+    const section = findSection(id);
+    if (section) {
+      const page = findPage(section.pageId);
+      const sectionTasks = state.tasks.filter((t) => t.sectionId === id);
+      addToTrash({
+        kind: "section",
+        label: section.name || "Untitled",
+        pageName: page ? page.name || "Untitled" : "",
+        itemCount: sectionTasks.length,
+        page: cloneJson(page || null),
+        sections: [cloneJson(section)],
+        tasks: cloneJson(sectionTasks)
+      });
+    }
     state.sections = state.sections.filter((x) => x.id !== id);
     state.tasks = state.tasks.filter((t) => t.sectionId !== id);
     persist();
@@ -430,7 +496,85 @@ export const store = {
 
   deleteTask(id) {
     pushUndo();
+    const task = findTask(id);
+    if (task) {
+      const page = findPage(task.pageId);
+      const section = findSection(task.sectionId);
+      addToTrash({
+        kind: page && page.type === "calendar" ? "event" : page && page.type === "grocery" ? "item" : "task",
+        label: task.text || "Untitled",
+        pageName: page ? page.name || "Untitled" : "",
+        itemCount: 1,
+        page: cloneJson(page || null),
+        sections: section ? [cloneJson(section)] : [],
+        tasks: [cloneJson(task)]
+      });
+    }
     state.tasks = state.tasks.filter((x) => x.id !== id);
+    persist();
+  },
+
+  // --- sample setup (welcome.js) ---
+  // Adds the sample pages alongside whatever's there — it never replaces
+  // anything — except that a brand-new user's single untouched default
+  // page is dropped so the sample isn't sitting next to an empty page.
+  // One undo step for the whole thing.
+  loadSample(sample) {
+    if (!sample || !Array.isArray(sample.pages)) return null;
+    pushUndo();
+    const untouched = state.pages.length === 1 && state.sections.length === 0 && state.tasks.length === 0;
+    if (untouched) state.pages = [];
+    const startOrder = state.pages.reduce((max, p) => Math.max(max, p.order || 0), 0);
+    sample.pages.forEach((p, i) => state.pages.push(Object.assign({}, p, { order: startOrder + i + 1 })));
+    sample.sections.forEach((s) => state.sections.push(Object.assign({}, s)));
+    sample.tasks.forEach((t) => state.tasks.push(Object.assign({}, t)));
+    persist();
+    return sample.pages[0] ? sample.pages[0].id : null;
+  },
+
+  // --- recently deleted ---
+  getTrash() {
+    return state.trash;
+  },
+
+  // Puts everything in a trash entry back. Anything that already exists
+  // again (e.g. its section was restored separately first) is left alone
+  // rather than duplicated; a page or section that no longer exists is
+  // recreated from the entry's snapshot. A restored page always comes
+  // back as a personal (unshared) page — its old shared list may be long
+  // gone, and re-sharing is one click.
+  restoreFromTrash(entryId) {
+    const entry = state.trash.find((e) => e.id === entryId);
+    if (!entry) return false;
+    pushUndo();
+    const pageIds = new Set(state.pages.map((p) => p.id));
+    const sectionIds = new Set(state.sections.map((s) => s.id));
+    const taskIds = new Set(state.tasks.map((t) => t.id));
+    if (entry.page && !pageIds.has(entry.page.id)) {
+      state.pages.push(Object.assign({}, entry.page, {
+        sharedPageId: null,
+        shareRole: null,
+        linkedListIds: Array.isArray(entry.page.linkedListIds) ? entry.page.linkedListIds : [],
+        order: state.pages.reduce((max, p) => Math.max(max, p.order || 0), 0) + 1
+      }));
+    }
+    entry.sections.forEach((s) => { if (!sectionIds.has(s.id)) state.sections.push(Object.assign({}, s)); });
+    entry.tasks.forEach((t) => { if (!taskIds.has(t.id)) state.tasks.push(Object.assign({}, t, { updatedAt: nowIso() })); });
+    state.trash = state.trash.filter((e) => e.id !== entryId);
+    persist();
+    return entry.page ? entry.page.id : true;
+  },
+
+  deleteFromTrash(entryId) {
+    pushUndo();
+    state.trash = state.trash.filter((e) => e.id !== entryId);
+    persist();
+  },
+
+  emptyTrash() {
+    if (!state.trash.length) return;
+    pushUndo();
+    state.trash = [];
     persist();
   },
 

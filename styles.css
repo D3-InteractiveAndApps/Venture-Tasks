@@ -121,6 +121,129 @@ body {
 
 .sidebar-footer { margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .sidebar-settings-btn { width: 100%; justify-content: center; }
+.sidebar-link-btn {
+  display: flex; align-items: center; gap: 6px; width: 100%; font: inherit; font-size: var(--text-sm); font-weight: 500;
+  color: var(--muted); background: transparent; border: none; border-radius: var(--radius-md); padding: 8px 10px;
+  margin-bottom: var(--space-2); cursor: pointer; text-align: left;
+}
+.sidebar-link-btn:hover { color: var(--text); background: var(--panel-2); }
+.sidebar-search-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: var(--text-sm); color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 9px 12px; cursor: pointer; text-align: left;
+}
+.sidebar-search-btn:hover { border-color: var(--accent); color: var(--text); }
+.sidebar-search-btn kbd {
+  margin-left: auto; white-space: nowrap; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; background: var(--panel);
+}
+.trash-count:empty { display: none; }
+.trash-count {
+  margin-left: auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 1px 7px;
+}
+
+/* First-run welcome card (welcome.js) */
+.welcome-card {
+  background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-md); padding: var(--space-5) var(--space-6) var(--space-5);
+  position: relative; overflow: hidden;
+}
+.welcome-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--accent);
+}
+.welcome-head { display: flex; align-items: center; gap: var(--space-3); }
+.welcome-head h2 { flex: 1; margin: 0; font-family: var(--font-heading); font-size: var(--text-xl); letter-spacing: -0.01em; }
+.welcome-lead { margin: 4px 0 var(--space-4); color: var(--muted); font-size: var(--text-base); }
+.welcome-tips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.welcome-tip {
+  display: flex; gap: var(--space-3); align-items: flex-start; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-3);
+}
+.welcome-tip-icon {
+  flex-shrink: 0; width: 34px; height: 34px; display: grid; place-content: center; font-size: 17px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: var(--radius-md);
+}
+.welcome-tip strong { display: block; font-size: var(--text-sm); margin-bottom: 2px; }
+.welcome-tip p { margin: 0; font-size: var(--text-sm); color: var(--muted); line-height: 1.45; }
+.welcome-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-5); }
+.welcome-actions .primary-btn, .welcome-actions .secondary-btn { padding: 10px 18px; font-size: var(--text-sm); }
+.welcome-note { margin: var(--space-3) 0 0; font-size: var(--text-xs); color: var(--muted); }
+.welcome-card.is-compact { padding: var(--space-4); margin-bottom: var(--space-5); flex-shrink: 0; }
+.welcome-card.is-compact .welcome-head h2 { font-size: var(--text-lg); }
+.welcome-card.is-compact .welcome-lead { font-size: var(--text-sm); margin-bottom: var(--space-3); }
+.welcome-card.is-compact .welcome-tips { grid-template-columns: 1fr; gap: var(--space-2); }
+.welcome-card.is-compact .welcome-tip { padding: 10px; }
+.welcome-card.is-compact .welcome-actions { margin-top: var(--space-4); }
+.welcome-card.is-compact .welcome-actions > * { flex: 1; justify-content: center; }
+.mobile-home-welcome:empty, .welcome-slot:empty { display: none; }
+.welcome-slot { margin-bottom: var(--space-4); }
+body.calendar-fullscreen .welcome-slot { display: none; }
+/* Home-screen Today: one tight row per item — the client/value badges
+   still show on the list itself, they just don't fit a phone row here. */
+.mobile-home-today-body .today-row { padding: 9px var(--space-4); gap: 6px 8px; }
+.mobile-home-today-body .client-badge, .mobile-home-today-body .value-badge { display: none; }
+.mobile-home-today-body .today-row-text { flex: 1 1 60%; font-size: var(--text-sm); }
+.mobile-home-today-body .today-page-tag { font-size: 10.5px; padding: 3px 8px; }
+@media (max-width: 700px) { .welcome-tips { grid-template-columns: 1fr; } }
+
+/* Search everything (Ctrl/Cmd+K) */
+.modal-overlay.search-overlay { align-items: flex-start; padding-top: 10vh; }
+.modal.search-modal { max-width: 620px; width: 100%; gap: 0; }
+.search-modal-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+.search-modal-icon { font-size: 16px; opacity: 0.6; }
+.search-modal-head input {
+  flex: 1; min-width: 0; font: inherit; font-size: var(--text-md); color: var(--text); background: transparent; border: none; padding: 8px 4px; outline: none;
+}
+.search-modal-head input::-webkit-search-cancel-button { display: none; }
+.search-modal-head input:focus, .search-modal-head input:focus-visible { outline: none; border: none; box-shadow: none; background: transparent; }
+.search-results { max-height: min(60vh, 520px); overflow-y: auto; padding: 6px 0 10px; }
+.search-hint { color: var(--muted); font-size: var(--text-sm); text-align: center; padding: var(--space-6) var(--space-4); margin: 0; }
+.search-group-title {
+  padding: 10px var(--space-4) 4px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.search-result {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; font: inherit; color: var(--text); background: transparent;
+  border: none; padding: 9px var(--space-4); cursor: pointer; text-align: left;
+}
+.search-result.active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.search-result-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.search-result-check { color: var(--muted); flex-shrink: 0; }
+.search-result-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); }
+.search-result.is-done .search-result-text { color: var(--muted); text-decoration: line-through; }
+.search-result mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.search-result-meta { flex-shrink: 0; max-width: 45%; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-modal-foot { padding: 8px var(--space-4); border-top: 1px solid var(--border); font-size: var(--text-xs); color: var(--muted); }
+@media (max-width: 600px) {
+  .modal-overlay.search-overlay { padding: 0; align-items: stretch; }
+  .modal.search-modal { max-height: 100vh; height: 100%; border-radius: 0; border: none; }
+  .search-results { max-height: none; flex: 1; }
+  .search-modal-foot { display: none; }
+  .search-result { flex-direction: column; align-items: stretch; gap: 2px; }
+  .search-result-main { width: 100%; }
+  .search-result-meta { max-width: 100%; padding-left: 24px; }
+}
+@keyframes search-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.row-wrap.search-flash { animation: search-flash 1.8s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .row-wrap.search-flash { animation: none; outline: 2px solid var(--accent); } }
+
+/* Recently deleted modal */
+.trash-list { display: flex; flex-direction: column; gap: 6px; }
+.trash-empty { color: var(--muted); font-size: var(--text-sm); text-align: center; padding: var(--space-5) 0; margin: 0; }
+.trash-row {
+  display: flex; align-items: center; gap: var(--space-3); padding: 10px 12px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.trash-row-icon {
+  flex-shrink: 0; width: 30px; height: 30px; display: grid; place-content: center; font-size: 14px;
+  background: var(--panel); border-radius: var(--radius-sm); color: var(--muted);
+}
+.trash-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.trash-row-name { font-weight: 600; font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trash-row-meta { font-size: var(--text-xs); color: var(--muted); }
+.trash-restore-btn { padding: 6px 12px; font-size: var(--text-xs); }
+.trash-foot { justify-content: space-between; gap: var(--space-3); }
+.trash-foot .section-del[hidden] { display: none; }
 
 /* ---- Mobile home screen (list picker) + the back/settings bar that
    replaces it once a page is open. Both are no-ops on desktop — hidden
@@ -332,6 +455,43 @@ main { width: 100%; max-width: 720px; }
   border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 4px 10px; cursor: pointer; white-space: nowrap;
 }
 .today-page-tag:hover { color: var(--accent); border-color: var(--accent); }
+.today-row.is-done .today-row-text { color: var(--muted); text-decoration: line-through; }
+.today-row-time {
+  flex-shrink: 0; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; font-weight: 500;
+  color: var(--accent); min-width: 44px;
+}
+.today-row-glyph { flex-shrink: 0; width: 18px; text-align: center; color: var(--muted); font-size: 14px; }
+.today-daily-badge {
+  flex-shrink: 0; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px; padding: 3px 7px;
+  border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn, #c7891a); white-space: nowrap;
+}
+
+/* Mobile home screen's own Today block (the toolbar's Today button lives
+   inside a page, which is hidden behind the home screen). */
+.mobile-home-head-actions { display: flex; gap: var(--space-2); }
+.mobile-home-today {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm); margin-bottom: var(--space-5); overflow: hidden; flex-shrink: 0;
+}
+.mobile-home-today-head {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; font: inherit; color: var(--text);
+  background: var(--panel-2); border: none; border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4);
+  cursor: pointer; text-align: left;
+}
+.mobile-home-today.is-collapsed .mobile-home-today-head { border-bottom: none; }
+.mobile-home-today-title { font-family: var(--font-heading); font-weight: 700; font-size: var(--text-base); flex: 1; }
+.mobile-home-today-count {
+  display: inline-grid; place-content: center; min-width: 20px; height: 20px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: var(--radius-pill);
+}
+.mobile-home-today-count[hidden] { display: none; }
+.mobile-home-today-chevron { color: var(--muted); transition: transform 0.15s var(--ease); }
+.mobile-home-today.is-collapsed .mobile-home-today-chevron { transform: rotate(-90deg); }
+.mobile-home-today-body { max-height: 46vh; overflow-y: auto; }
+.mobile-home-lists-title {
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 var(--space-2) var(--space-1);
+}
 
 .sections { display: flex; flex-direction: column; gap: var(--space-4); }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
@@ -662,6 +822,33 @@ li.row-wrap.done .row-text {
   transition: border-color 0.12s var(--ease), color 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
 .secondary-btn[hidden] { display: none; }
+a.secondary-btn { text-decoration: none; }
+.secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.settings-optional {
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 2px 7px; margin-left: 6px; vertical-align: 2px;
+}
+.reminder-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 8px 0; font-size: var(--text-sm); cursor: pointer;
+}
+.reminder-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+.reminder-row input:disabled + span { color: var(--muted); }
+.reminder-inline-input {
+  font: inherit; font-size: var(--text-sm); color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 5px 8px;
+}
+.reminder-inline-input:disabled { opacity: 0.5; }
+.reminders-status { color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 12px; }
+.reminders-status[hidden] { display: none; }
+.report-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--space-3); }
+.report-custom-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-3); }
+.report-custom-dates[hidden] { display: none; }
+.report-preview {
+  font-size: var(--text-sm); font-weight: 600; color: var(--text); margin: 2px 0 8px; padding: 9px 12px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+@media (max-width: 600px) { .report-filters { grid-template-columns: 1fr; } }
 .secondary-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-xs); }
 .file-btn { position: relative; overflow: hidden; }
 
@@ -916,6 +1103,46 @@ body.calendar-fullscreen main { max-width: none; }
 .calendar-day-full-events { display: flex; flex-direction: column; gap: 8px; }
 .calendar-day-full-events .calendar-event-chip { font-size: 13px; padding: 7px 10px; }
 .calendar-day-full-events .calendar-no-events { color: var(--muted); font-size: 13px; }
+
+/* Month / Agenda toggle + explicit "+ Event" button in the calendar bar. */
+.calendar-toolbar-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.calendar-mode-toggle {
+  display: inline-flex; padding: 3px; gap: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-pill);
+}
+.calendar-mode-btn {
+  font: inherit; font-size: var(--text-xs); font-weight: 600; color: var(--muted); background: transparent; border: none;
+  border-radius: var(--radius-pill); padding: 6px 12px; cursor: pointer;
+}
+.calendar-mode-btn.active { background: var(--accent); color: var(--accent-ink); }
+.calendar-add-event-btn { padding: 8px 14px; font-size: var(--text-sm); }
+
+/* Agenda: a chronological list of upcoming days that have something on them. */
+.calendar-agenda { display: flex; flex-direction: column; gap: var(--space-3); }
+.calendar-view.is-fullscreen .calendar-agenda { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--space-6); }
+.calendar-agenda-day {
+  flex-shrink: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); overflow: hidden;
+}
+.calendar-agenda-day.is-today { border-color: var(--accent); }
+.calendar-agenda-date {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2);
+}
+.calendar-agenda-date strong { font-family: var(--font-heading); font-size: var(--text-base); }
+.calendar-agenda-day.is-today .calendar-agenda-date strong { color: var(--accent); }
+.calendar-agenda-date-sub { font-size: var(--text-xs); color: var(--muted); }
+.calendar-agenda-holiday {
+  font-size: var(--text-xs); font-weight: 700; font-style: italic; color: var(--accent);
+}
+.calendar-agenda-add {
+  margin-left: auto; align-self: center; width: 28px; height: 28px; font: inherit; font-size: 16px; line-height: 1; color: var(--muted);
+  background: transparent; border: 1px solid var(--border); border-radius: 50%; cursor: pointer;
+}
+.calendar-agenda-add:hover { color: var(--accent); border-color: var(--accent); }
+.calendar-agenda-events { display: flex; flex-direction: column; gap: 6px; padding: 0 var(--space-3) var(--space-3); }
+.calendar-agenda-events:empty { display: none; }
+.calendar-agenda-day:has(.calendar-agenda-events:empty) .calendar-agenda-date { padding-bottom: var(--space-3); }
+.calendar-agenda-events .calendar-event-chip { font-size: 13px; padding: 8px 10px; }
+.calendar-agenda-events .calendar-event-text-input { font-size: 13px; }
+.calendar-agenda-empty { text-align: center; color: var(--muted); font-size: var(--text-sm); padding: var(--space-8) var(--space-4); }
 
 /* ---- Mobile calendar: rebuilt, not just shrunk. Dylan's single biggest
    complaint about the old look was the calendar on a phone — seven

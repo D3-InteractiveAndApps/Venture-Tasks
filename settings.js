@@ -5,6 +5,9 @@ import { todayStr } from "./dates.js";
 import * as sync from "./sync.js";
 import { FONT_OPTIONS, THEME_PRESETS, THEME_CATEGORY_LABELS, findPreset, applyTheme } from "./theme.js";
 import { buildIcsCalendar } from "./ics.js";
+import { CURRENCIES, normalizeCurrency, formatMoney } from "./money.js";
+import { mountReminderSettings } from "./reminders.js";
+import { listClients, periodRange, selectReportRows, buildClientReportCsv, NO_CLIENT } from "./report.js";
 
 export function initSettings(store, ai, onAiChange) {
   const overlay = document.getElementById("settings-overlay");
@@ -59,6 +62,10 @@ export function initSettings(store, ai, onAiChange) {
   const liveCalendarActions = document.getElementById("live-calendar-actions");
   const liveCalendarCopyBtn = document.getElementById("live-calendar-copy-btn");
   const liveCalendarStatus = document.getElementById("live-calendar-status");
+
+  // Sections added later (client work, reminders) refresh themselves each
+  // time the modal opens by registering here.
+  const openHooks = [];
 
   FONT_OPTIONS.forEach((f) => {
     const opt = document.createElement("option");
@@ -226,6 +233,7 @@ export function initSettings(store, ai, onAiChange) {
     resetAccountDeleteConfirm();
     liveCalendarStatus.textContent = "";
     liveCalendarStatus.className = "settings-status";
+    openHooks.forEach((fn) => fn());
     overlay.hidden = false;
   }
 
@@ -423,7 +431,7 @@ export function initSettings(store, ai, onAiChange) {
 
   icsExportBtn.addEventListener("click", () => {
     const state = store.getState();
-    const ics = buildIcsCalendar(state.pages, state.sections, state.tasks);
+    const ics = buildIcsCalendar(state.pages, state.sections, state.tasks, store.getSettings().currency);
     const blob = new Blob([ics], { type: "text/calendar" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -452,5 +460,99 @@ export function initSettings(store, ai, onAiChange) {
     };
     reader.onerror = () => { dataStatus.textContent = "Couldn't read that file."; };
     reader.readAsText(file);
+  });
+
+  // --- Reminders ---
+  const refreshReminders = mountReminderSettings(document.getElementById("reminders-body"), store);
+  openHooks.push(refreshReminders);
+
+  // --- Client work: currency + the client report CSV ---
+  const currencySelect = document.getElementById("currency-select");
+  const reportClient = document.getElementById("report-client");
+  const reportPeriod = document.getElementById("report-period");
+  const reportStatus = document.getElementById("report-status");
+  const reportCustomDates = document.getElementById("report-custom-dates");
+  const reportFrom = document.getElementById("report-from");
+  const reportTo = document.getElementById("report-to");
+  const reportPreview = document.getElementById("report-preview");
+  const reportExportBtn = document.getElementById("report-export-btn");
+
+  CURRENCIES.forEach(([code, label]) => {
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = label;
+    currencySelect.appendChild(opt);
+  });
+  currencySelect.addEventListener("change", () => {
+    store.setSettings({ currency: normalizeCurrency(currencySelect.value) });
+    updateReportPreview();
+    // Value badges and section totals re-render in the new currency.
+    if (typeof onAiChange === "function") onAiChange();
+  });
+
+  function currentReportOpts() {
+    const period = reportPeriod.value;
+    const range = period === "custom"
+      ? { from: reportFrom.value || null, to: reportTo.value || null }
+      : periodRange(period);
+    return { client: reportClient.value, from: range.from, to: range.to, status: reportStatus.value };
+  }
+
+  function updateReportPreview() {
+    const rows = selectReportRows(store.getState(), currentReportOpts());
+    const { total, count } = buildClientReportCsv(rows, normalizeCurrency(store.getSettings().currency));
+    reportExportBtn.disabled = count === 0;
+    if (count === 0) {
+      reportPreview.textContent = listClients(store.getState()).length === 0 && !store.getState().tasks.some((t) => Number(t.value) > 0)
+        ? "No tasks are tagged with a client or value yet."
+        : "Nothing matches these filters.";
+    } else {
+      const money = formatMoney(total, store.getSettings().currency);
+      reportPreview.textContent = count + " task" + (count === 1 ? "" : "s") + (money ? " · " + money + " total" : "");
+    }
+  }
+
+  function refreshClientWork() {
+    currencySelect.value = normalizeCurrency(store.getSettings().currency);
+    const keep = reportClient.value;
+    reportClient.innerHTML = "";
+    const add = (value, label) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      reportClient.appendChild(opt);
+    };
+    add("", "All clients");
+    listClients(store.getState()).forEach((c) => add(c, c));
+    add(NO_CLIENT, "(No client — value only)");
+    reportClient.value = Array.from(reportClient.options).some((o) => o.value === keep) ? keep : "";
+    reportCustomDates.hidden = reportPeriod.value !== "custom";
+    updateReportPreview();
+  }
+  openHooks.push(refreshClientWork);
+
+  [reportClient, reportStatus, reportFrom, reportTo].forEach((el) => el.addEventListener("change", updateReportPreview));
+  reportPeriod.addEventListener("change", () => {
+    reportCustomDates.hidden = reportPeriod.value !== "custom";
+    updateReportPreview();
+  });
+
+  reportExportBtn.addEventListener("click", () => {
+    const opts = currentReportOpts();
+    const rows = selectReportRows(store.getState(), opts);
+    if (!rows.length) return;
+    const { csv } = buildClientReportCsv(rows, normalizeCurrency(store.getSettings().currency));
+    const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const who = opts.client === NO_CLIENT ? "no-client" : opts.client ? slug(opts.client) : "all-clients";
+    const when = opts.from || opts.to ? (opts.from || "start") + "-to-" + (opts.to || todayStr()) : "all-time";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "venture-tasks-" + who + "-" + when + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   });
 }

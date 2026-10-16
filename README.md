@@ -13,7 +13,11 @@ The app's visual design went through a full pass — a left-hand sidebar for nav
 ## Features
 
 - **Pages**, switched via the sidebar on the left (a full-screen home screen that lists every page on narrower screens — see "The mobile home screen" below) — e.g. keep "Professional Tasks" and "Daily Life" completely separate, each with its own sections and its own heading (click the big title at the top to rename the active page). Add as many as you like with the **+** button; delete the current one with the **Delete page** button next to the title (there's always at least one page left).
-- **Today view** — tap the **Today** button (it shows a count badge when there's anything to see) for everything overdue or due today, pulled from *every* page at once, not just whichever one you're currently looking at. Check something off right there, or tap its page/section tag to jump straight to it. See "Using the Today view" below.
+- **Today view** — tap the **Today** button (it shows a count badge when there's anything to see) for everything overdue or due today, your daily tasks, and today's calendar events, pulled from *every* page at once, not just whichever one you're currently looking at. Check something off right there, or tap its page/section tag to jump straight to it. On a phone it's at the top of the home screen. See "Using the Today view" below.
+- **Search everything** — Ctrl+K (⌘K on Mac), or the 🔍 button, searches every page at once — tasks, grocery items, events, sections, pages, and client names — and jumps you straight to the result. See "Search everything" below.
+- **Reminders** — an optional daily summary notification, reminders before timed calendar events, and the Today count on the app icon. See "Reminders" below for exactly what works where.
+- **Recently deleted** — deleted tasks, sections, and pages can be restored for 30 days. See "Recently deleted" below.
+- **Client reports** — export everything tagged to a client, for any period, as a spreadsheet for invoices or taxes, in your choice of currency. See "Tracking client work" below.
 - Three page types, chosen when you add a page: a regular **to-do list**, a **grocery list** — a stripped-down item type (name, category, checkbox, color only — no due dates, recurrence, someday, or AI). A new grocery page starts pre-seeded with 13 common categories (Produce, Dairy & Eggs, Meat & Seafood, Bakery, Frozen, Pantry, Canned Goods, Breakfast & Cereal, Snacks, Beverages, Condiments & Spices, Household, Personal Care) so there's something to add items to right away — rename, delete, reorder, or add your own alongside them like any other category, and a category picker right on each item lets you reassign it anytime — or a **Family Calendar**, a month-grid view for freestanding events (not tied to any to-do list) that can also pull in due dates from any other page you link to it. See "Family Calendar" below.
 - **Grocery auto-categorization** — add an item to a grocery list via the search box or by voice without naming a category, and it's filed into the right one automatically (milk → Dairy & Eggs, bananas → Produce, etc.) using a built-in keyword list, with your connected AI provider as a fallback for anything that list doesn't recognize. The category picker on each item still overrides any guess. See "Grocery items file themselves into a category" below.
 - Sections (or, on a grocery page, categories) freely added, renamed, color-coded, collapsed, and reordered — by drag-and-drop on desktop, or with a pair of up/down buttons on touch devices (drag-and-drop isn't something touchscreens support natively).
@@ -34,7 +38,8 @@ The app's visual design went through a full pass — a left-hand sidebar for nav
 - **Live calendar** — also in Settings → Your data, a subscribe link (needs an account) that stays current on its own, no re-exporting. See "Live calendar: a subscribe link instead of a file" below.
 - **Shared lists** — turn any page into a shared list (the **Share list** button next to the page title) and invite someone else by code; both of you see each other's changes within a second or two, same as two of your own devices syncing. See "Sharing a list with someone else" below.
 - **Family Calendar** — a month-grid page type for a family (or any group) to see the same calendar and each other's changes to it, with freestanding events (a date, and an optional time) that don't need to live on a to-do list at all, plus the ability to link any existing list to any calendar at any time so its due dates show up on the grid too. Events can repeat too (same daily/weekly/monthly/weekday/weekend/custom options as a to-do task's recurrence), and every day with at least one event on it — even just one — has a small view button so you can always see exactly what's on any given day, not only the busy ones. Major US holidays show up automatically, every year, with no upkeep needed. See "Family Calendar" below.
-- An optional AI co-pilot, off by default. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
+- **A welcome tour and sample setup** for first-time users. See "The welcome tour" below.
+- An optional AI co-pilot, off by default and not needed for anything else. Connect your own Claude, ChatGPT, or Gemini API key in Settings to get: a task breakdown into subtasks, a first-draft reply/outline for a task, "what's blocking this" suggestions, and a weekly review that summarizes the active page's sections.
 - Optional accounts with real cross-device sync — sign up right in the app, sign in on another computer, and see the same pages/sections/tasks. No setup needed to use it; it's already connected. Works fully without an account too, storing data on-device only.
 - Export/Import as JSON, for backing up or moving to another browser or computer by hand. Export/import now carries every page, not just one.
 
@@ -73,6 +78,14 @@ This isn't sold as a download anyone unzips and hosts themselves — it's the sa
 
 There's no license-key enforcement and no paywall built into the app itself — it's free to use once someone has the link, same as Shiny Ledger. If a future version wants to actually gate something behind a purchase, that needs real backend support (a licensing service or similar) — a pure static site can't verify a purchase on its own.
 
+## Privacy policy
+
+`privacy.html` is a plain-language privacy page, linked from the app's footer, the sign-up form, and Settings → Help & privacy. It covers what's stored with and without an account, shared lists (including that members of a shared Family Calendar can see each other's email addresses), the live calendar link, the AI co-pilot, voice commands (Chrome/Safari's own speech recognition may process audio on Google's/Apple's servers), reminders, the third-party services the app loads from (GitHub Pages, Google Fonts, jsDelivr), and how to delete everything. Every statement in it was checked against what the code actually does. Two things worth knowing as the operator: it's a sensible plain-language policy, not legal advice; and its only contact route is the itch.io page — add an email address to it if you'd like one there. If you change what the app collects, update the "Last updated" date at the top.
+
+## Reporting bugs
+
+Settings → Help & privacy → **Report a bug or suggest a feature** (and a **Report a bug** link in the footer) both go to the itch.io page at `https://d3-appsandinteractive.itch.io/venture-tasks`, same pattern as Shiny Ledger. That URL assumes the itch.io project slug is `venture-tasks` — if it ends up different, update the two links in `index.html` and the one in `privacy.html`.
+
 ## How the AI co-pilot actually works (security model)
 
 This app never talks to a server you or Claude control — there isn't one. When you connect a provider in Settings:
@@ -92,11 +105,45 @@ Model names drift over time, so the Settings panel lets you type the exact model
 
 ## Using the Today view
 
-The **Today** button (top toolbar) opens a panel showing everything overdue or due today, grouped that way, pulled from every to-do page at once — not just the one you happen to be looking at. It's built for exactly the situation this app exists for: running several ventures means the thing that's actually urgent today could be sitting on any one of them, and flipping through tabs one at a time to find out defeats the point.
+The **Today** button (top toolbar) opens a panel pulling from every page at once — not just the one you happen to be looking at. It's built for exactly the situation this app exists for: running several ventures means the thing that's actually urgent today could be sitting on any one of them, and flipping through tabs one at a time to find out defeats the point. On a phone, Today sits right at the top of the home screen instead, so it's the first thing you see (collapse it with its arrow if you'd rather not).
 
-Each row shows the task, its due-status badge, its client/value tags if it has any, and a small pill with the page and section it belongs to — tap that pill to jump straight there (the panel closes automatically). Checking the box right there marks it done, same as checking it off anywhere else, and it disappears from the list immediately. The button itself carries a small count badge whenever there's anything overdue or due today, so you can tell at a glance without even opening it.
+It's grouped four ways:
 
-A couple of deliberate scope choices: it only looks at to-do pages (grocery items don't have due dates, so there's nothing for it to show there), and it only surfaces *overdue* and *due today* — not "due this week" — on the theory that a Today view that also shows next Tuesday stops being about today. Someday tasks are left out too, same reasoning.
+- **Overdue** and **Due today** — to-do tasks, with their due badge and client/value tags.
+- **Daily** — every Daily task, whether or not it has a due date, with a running "2 of 5 done" count. Unlike the other groups, checking one off leaves it in the list (shown as done), so you can see today's progress and fix a mis-tap; it resets itself tomorrow like always.
+- **Events today** — Family Calendar events happening today, with their time — including today's occurrence of a repeating event (a weekly "Trash day" created months ago shows up every week, not just on the day it was created). Today's occurrence of a repeating event is read-only here, same as on the calendar grid; complete or edit it from its original date.
+
+Tap a row's page tag to jump straight there. The button's count badge (and the app-icon badge, if you turn that on under Reminders) counts what still needs doing — overdue, due today, and daily tasks not yet done. Events are shown but not counted, since they're things that happen rather than chores, and a past event never shows as "overdue."
+
+A couple of deliberate scope choices: grocery items never appear (they don't have dates), and it only surfaces *today* — not "due this week" — on the theory that a Today view that also shows next Tuesday stops being about today. Someday tasks are left out too, same reasoning.
+
+## Search everything
+
+The search box at the top of a list only ever searches that one list. **Search everything** — the 🔍 **Search** button at the top of the sidebar, the 🔍 on a phone, or **Ctrl+K** (**⌘K** on a Mac) from anywhere — searches every page at once: tasks, grocery items, calendar events, section names, page names, and client names. Every word you type has to match somewhere, so "harbor logo" finds "Send logo files" tagged to client Harbor Coffee.
+
+Results are grouped by page, open items above checked-off ones, with your words highlighted. Use the arrow keys and Enter, or just click. Opening a result takes you to its page, expands its section if it was collapsed, scrolls to it, and briefly highlights it; a calendar event opens its month and that day's detail view.
+
+## Recently deleted
+
+Deleting a task, grocery item, calendar event, section, or whole page no longer makes it vanish — it goes to **Recently deleted** (the sidebar's 🗑️ link, or **Settings → Your data** on a phone), where you can **Restore** it for 30 days. After 30 days it's removed for good automatically; the **×** on an entry or **Empty trash** removes things sooner.
+
+Restore is forgiving: if you restore a task whose section (or whole page) was also deleted since, that section or page comes back with it. A restored page always comes back as a personal page, even if it used to be shared — re-share it in one click if you need to. Ctrl+Z still works exactly as before on top of all this. If someone *else* deletes something from a list you share, it isn't added to your trash — that was their deletion, not yours.
+
+## Reminders
+
+Settings → **Reminders** has three opt-in pieces, all off by default (except the icon badge, which only does anything once the app is installed):
+
+- **Daily summary at [time]** — once a day, at or after the time you pick, a notification like "Today: 1 overdue · 2 due today · 1 daily" naming the first few items. If you're already looking at the app when that time comes, it skips the buzz (you can see it), and a day with nothing on it stays quiet.
+- **Calendar events with a time** — a notification a chosen amount of time before each timed Family Calendar event (at start, 5, 10, 15, or 30 minutes, or an hour before), including today's occurrence of a repeating event. Opening the app hours after an event never fires a stale reminder for it.
+- **Show the Today count on the app icon** — the same number as the Today button's badge, on the installed app's icon, where the platform supports it.
+
+**The honest limitation:** there's no server here, so reminders are worked out on your device and can only arrive while Venture Tasks is open — in the foreground *or* the background (a minimized window, a background tab, an installed app that's still in your app switcher). A fully closed app can't notify you. Real push notifications to a closed app would need a server sending them, which this app deliberately doesn't have. On **iPhone/iPad**, browsers only allow notifications for web apps added to the Home Screen (iOS 16.4 or later) — Settings explains this if you try it in Safari directly. **Send a test notification** checks everything's working on a given device; each device keeps its own reminder choices.
+
+## The welcome tour
+
+Someone opening Venture Tasks for the very first time — one empty page, nothing in it — gets a welcome card with a 30-second tour of the four things people otherwise never discover (pages per venture, Today, the Family Calendar, and search + client work), plus a **Load a sample setup** button: four example pages (Client Work, Home, Groceries, Family Calendar) dated around today, so the Today view and calendar have something in them immediately. It's ordinary data — edit or delete any of it — and one Ctrl+Z undoes loading it. **Start from scratch** (or the ×) dismisses it for good. On a phone it sits on the home screen.
+
+Existing users never see it automatically. Settings → Help & privacy → **Show the welcome tour again** brings it back for anyone; for someone who already has data, the button says **Add sample pages** and adds the four sample pages alongside everything else — it never replaces anything.
 
 ## Using voice commands
 
@@ -153,7 +200,7 @@ Every section has its own collapse arrow, now bigger than before (especially on 
 
 ## The mobile home screen
 
-On a narrow screen (roughly phone-width), the app no longer opens straight into whichever page was last active. Instead it opens to a home screen: a full-screen list of every page you have, each one shown as a card with its icon, name, and a quick subtitle (how many open tasks, or how many items, depending on the page type). Tap a card to go straight into that page — exactly as if you'd tapped its tab on desktop — and a **‹** back button at the top of whatever page you're in brings you straight back to this home screen. **+ Add a list** is right there too, so starting a new page doesn't require backing out to find a **+** button buried in a nav bar.
+On a narrow screen (roughly phone-width), the app no longer opens straight into whichever page was last active. Instead it opens to a home screen: your **Today** list at the top (see "Using the Today view" — the toolbar's Today button lives inside a page, which a phone hides behind this screen, so Today lives here instead), then a list of every page you have, each one shown as a card with its icon, name, and a quick subtitle (how many open tasks, or how many items, depending on the page type). Tap a card to go straight into that page — exactly as if you'd tapped its tab on desktop — and a **‹** back button at the top of whatever page you're in brings you straight back to this home screen. **+ Add a list** is right there too, so starting a new page doesn't require backing out to find a **+** button buried in a nav bar.
 
 This replaces the old narrow-screen layout, which squeezed all your page tabs into a horizontal scrolling bar at the top — workable, but cramped, and easy to lose track of which page was active. The home screen only shows up below the sidebar's collapse breakpoint; on desktop and tablet-width screens, the sidebar is still there on the left exactly as before, with no home screen in between.
 
@@ -162,6 +209,10 @@ This replaces the old narrow-screen layout, which squeezed all your page tabs in
 Opening a Family Calendar page takes over the entire screen, the same way Apple Calendar does on an iPhone: the sidebar (or, on mobile, the page bar), the search box, and all the other page chrome disappear, leaving just a minimal top bar — the month name, **‹**/**›** arrows to move between months, a **Today** button, and a **‹ Lists** link back to everything else — with the calendar grid filling the rest of the screen. This applies at every screen width, not just mobile; a desktop browser gets the same full-screen takeover, just with more room to work with.
 
 **Adding an event** no longer uses a form that sits on the page all the time — **double-click a day to add an event** on desktop, or **tap and hold a day** (about half a second) on a touchscreen, and the **Add event** modal opens pre-filled with that date. This was a deliberate trade: with the old always-visible quick-add form gone, there's nothing between you and the calendar grid itself, and the double-click/tap-hold threshold means a normal single tap or click on a day — browsing the month, say — never accidentally creates an event. The modal itself is identical either way: date, event text, an optional time, and the same Repeat options a to-do task has (see "Family Calendar" above for what those do).
+
+There's also an explicit **+ Event** button in the top bar, for anyone who doesn't think to double-click or press and hold — it adds to whichever day you last tapped, or today.
+
+**Month or Agenda.** The **Month / Agenda** switch in the top bar flips between the month grid and an agenda: a plain, chronological list of the next 8 weeks, showing only the days that actually have something on them (events, repeats of repeating events, due dates from linked lists, and holidays). It's much easier to scan on a phone than a dense grid, and every event in it is the same fully editable chip as on the grid; each day also has its own **+** to add an event there. The choice is remembered per calendar, per device.
 
 **Getting back to your other lists** is the **‹ Lists** button in the top bar — it exits the full-screen calendar without navigating away from the page itself (your scroll position and the month you're looking at are preserved if you come straight back), and on mobile it's a one-tap shortcut straight to the mobile home screen described above, rather than just revealing a page bar you'd then have to tap again. Visiting a Family Calendar page always opens into full-screen mode fresh — it's the default experience for this page type, not something you opt into each time.
 
@@ -184,6 +235,10 @@ A theme choice (or a hand-picked set of colors) is saved like any other setting 
 Open a task's details (the **⋯** button) and you'll find **Client** and **Value** fields alongside due date and recurrence. Neither is required — they're there for when a task is billable work and it's useful to see that at a glance. Set either one and it shows up as a small badge right on the row (a client name, a dollar amount, or both), in the Today view, and rolled up per section: the health strip adds up the value of every still-open tagged task in that section and shows it as "$X open" — a quick read on how much unbilled or unfinished work is sitting in one place. A recurring task carries its client/value tags forward to each new occurrence, same as its color does.
 
 This is intentionally simple — a tag and a number, not invoicing or time tracking — but it's enough to answer "how much open client work do I actually have right now" without leaving the task list.
+
+**Exporting a client report.** Settings → **Client work** turns those tags into a spreadsheet. Pick a client (or all of them, or "no client" for value-only tasks), a period (this month, last month, this or last quarter, this or last year, all time, or custom dates), and whether you want completed work, open work, or both — the line underneath shows how many tasks match and their total, live, before you download anything. **Download report (.csv)** saves a file that opens in Excel, Google Sheets, or Numbers, one row per task (date, status, client, task, value, currency, page, section, due date, completed date) with a total at the bottom — handy for writing an invoice or estimating quarterly taxes. Each task is dated by when it was completed if it's done (that's when the work was delivered), otherwise by its due date. Client names are matched case-insensitively, so "harbor coffee" and "Harbor Coffee" count as one client.
+
+**Currency.** Also under Settings → Client work. It only changes how values are *shown* (badges, section totals, the report, the calendar export) — the numbers you entered are never converted or changed, so switching it back and forth is harmless.
 
 ## Exporting to a calendar app
 
@@ -322,21 +377,28 @@ Behind the scenes this is `manifest.webmanifest` (name, icons, colors) plus `sw.
 ```
 index.html             Markup + the settings modal — loads app.js as an ES module
 styles.css              All styling (light/dark via prefers-color-scheme, plus font/color overrides)
-store.js                localStorage data layer (pages, sections, tasks — including calendar pages' linkedListIds and a task's optional eventTime — settings, undo, export/import, replaceState)
+store.js                localStorage data layer (pages, sections, tasks — including calendar pages' linkedListIds and a task's optional eventTime — the 30-day Recently deleted trash, settings, undo, export/import, replaceState, the sample setup loader)
 dates.js                Date/due-date/recurrence helper functions
 ai.js                   Provider-agnostic AI dispatcher
 claude.js, openai.js, gemini.js   One file per AI provider — direct REST calls
 supabase-config.js      Your Supabase project URL + anon key (placeholders until you set it up)
 sync.js                 Optional account/cloud-sync logic (auth, push/pull, realtime), shared-list sharing/joining, live-calendar-token logic, and the Family Calendar's list-linking/cross-sharing logic — no-ops until configured
-ui.js                   Rendering (tabs, sections, tasks/grocery items, the mobile home screen, the Family Calendar's full-screen takeover + fixed-size month grid + day-overflow popup + US holiday labels + double-click/tap-hold Add Event modal), the cross-page Today view, the share-list and linked-lists modals, drag-and-drop, touch reordering, list search + smart-Enter add/check/uncheck, the hide-done toggle, grocery auto-categorization (keyword map + AI fallback) on quick-add and voice-add, AI action wiring
+ui.js                   Rendering (tabs, sections, tasks/grocery items, the mobile home screen + its Today block, the welcome card, the Family Calendar's full-screen takeover + fixed-size month grid + agenda view + day-overflow popup + US holiday labels + double-click/tap-hold Add Event modal), the cross-page Today view, the Search everything dialog, the Recently deleted dialog, the share-list and linked-lists modals, drag-and-drop, touch reordering, list search + smart-Enter add/check/uncheck, the hide-done toggle, grocery auto-categorization (keyword map + AI fallback) on quick-add and voice-add, AI action wiring
 voice.js                Voice commands: microphone wrapper (Web Speech API) + phrase parsing/matching
 holidays.js             Computes US holiday dates for any year with plain date math (no API, no yearly data file to maintain)
 categorize.js           Built-in keyword map that guesses a grocery item's category; AI fallback for anything it doesn't recognize is called from ui.js
 ics.js                  Builds the one-time .ics calendar export from current due dates (timed when a Family Calendar event has a time set, all-day otherwise)
-settings.js             Settings modal logic (AI connection, account/sync, join-a-shared-list, live-calendar link, appearance/theme picker, export/import)
+settings.js             Settings modal logic (account/sync, join-a-shared-list, reminders, client work currency + report, appearance/theme picker, export/import, live-calendar link, AI connection)
 theme.js                Font options list + applying the active theme/font/color overrides to the page (DOM-touching half of the theme system)
 themes.js               The 20 built-in theme presets + the pure color math (lighten/mix/pickInk) that expands one into a full set of CSS variables (DOM-free half of the theme system, easy to unit test on its own)
 undo.js                 Global Ctrl+Z / Cmd+Z handler
+today.js                What belongs in the Today view (overdue, due today, daily tasks, today's events incl. repeats) — pure, shared by the Today panel, the mobile home screen, reminders, and the app-icon badge
+search.js               "Search everything" matching and ranking across every page — pure
+reminders.js            Opt-in daily summary + event reminders + app-icon badge (runs on-device while the app is open), and the Settings → Reminders UI
+report.js               Client work report: filtering by client/period/status and building the CSV — pure
+money.js                Currency list + formatting values in the chosen currency
+welcome.js              First-run welcome card and the sample setup
+privacy.html            Plain-language privacy policy (standalone page)
 app.js                  Entry point — wires everything together, registers sw.js
 manifest.webmanifest   PWA manifest (name, icons, colors) for "Add to Home Screen"
 sw.js                   Service worker: caches the app's own files for offline use + fast loading (bump VERSION on every deploy)

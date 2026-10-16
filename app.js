@@ -9,6 +9,7 @@ import { initSettings } from "./settings.js";
 import { initSync } from "./sync.js";
 import { initUndo } from "./undo.js";
 import { applyTheme } from "./theme.js";
+import { initReminders } from "./reminders.js";
 
 applyTheme(store.getSettings());
 
@@ -24,6 +25,10 @@ initUndo(store);
 // cheap enough to just leave running. 60s is plenty; it's a no-op scan
 // unless the date has actually changed.
 setInterval(() => store.checkDailyReset(), 60 * 1000);
+
+// Opt-in reminders + app-icon badge (Settings → Reminders). Worked out on
+// this device while the app is open — see reminders.js for the limits.
+initReminders(store);
 
 // Offline use + "add to home screen" support. Safe to skip silently if
 // unavailable (older browsers, or the site served over plain http://).

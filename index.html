@@ -30,9 +30,27 @@
       <span class="sidebar-brand-mark" aria-hidden="true">&#9670;</span>
       <h1 class="mobile-home-title">Venture Tasks</h1>
     </div>
-    <button id="mobile-home-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+    <div class="mobile-home-head-actions">
+      <button id="mobile-home-search-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Search everything">&#128269;</button>
+      <button id="mobile-home-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+    </div>
   </header>
 
+  <div class="mobile-home-welcome" id="mobile-home-welcome"></div>
+
+  <!-- The Today view's toolbar button lives inside a page, which is
+       hidden behind this home screen — so Today gets its own collapsible
+       block right here instead (see renderMobileHome in ui.js). -->
+  <section class="mobile-home-today" id="mobile-home-today">
+    <button id="mobile-home-today-toggle" type="button" class="mobile-home-today-head" aria-expanded="true" aria-controls="mobile-home-today-body">
+      <span class="mobile-home-today-title">&#128197; Today</span>
+      <span class="mobile-home-today-count" id="mobile-home-today-count"></span>
+      <span class="mobile-home-today-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="today-body mobile-home-today-body" id="mobile-home-today-body"></div>
+  </section>
+
+  <h2 class="mobile-home-lists-title">Your lists</h2>
   <div class="mobile-home-list" id="mobile-home-list"></div>
 
   <div class="mobile-home-add-wrap">
@@ -57,6 +75,8 @@
     <p class="eyebrow">Venture Tasks</p>
   </div>
 
+  <button id="global-search-btn" type="button" class="sidebar-search-btn" aria-haspopup="dialog" aria-label="Search everything" title="Search every page at once">&#128269; Search <kbd id="global-search-kbd">Ctrl K</kbd></button>
+
   <nav class="tabs" id="tabs" aria-label="Pages"></nav>
 
   <div class="add-page-form" id="add-page-form" hidden>
@@ -71,6 +91,7 @@
   </div>
 
   <div class="sidebar-footer">
+    <button id="open-trash-btn" type="button" class="sidebar-link-btn" aria-haspopup="dialog">&#128465;&#65039; Recently deleted <span class="trash-count" id="sidebar-trash-count"></span></button>
     <button id="settings-btn" type="button" class="icon-text-btn sidebar-settings-btn" aria-haspopup="dialog">&#9881; Settings</button>
   </div>
 </aside>
@@ -82,7 +103,10 @@
        (which held #settings-btn) is hidden entirely below 860px. -->
   <div class="mobile-page-bar" id="mobile-page-bar">
     <button id="mobile-back-btn" type="button" class="mobile-back-btn">&#8249; Lists</button>
-    <button id="mobile-page-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+    <div class="mobile-home-head-actions">
+      <button id="mobile-page-search-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Search everything">&#128269;</button>
+      <button id="mobile-page-settings-btn" type="button" class="icon-text-btn" aria-haspopup="dialog" aria-label="Settings">&#9881;</button>
+    </div>
   </div>
 
   <header class="page-head">
@@ -131,6 +155,8 @@
     <div class="review-body" id="review-body"></div>
   </div>
 
+  <div class="welcome-slot" id="welcome-slot"></div>
+
   <div class="panel add-section" id="add-section-panel">
     <input id="new-section" type="text" placeholder="Add a section&hellip; (e.g. a new business or project)" autocomplete="off" maxlength="80" />
     <button id="add-section-btn" type="button">Add section</button>
@@ -147,6 +173,9 @@
       <a href="https://d3-appsandinteractive.itch.io/" target="_blank" rel="noopener">itch.io</a> &middot;
       <a href="https://d3appsandinteractive.gumroad.com/" target="_blank" rel="noopener">Gumroad</a> &middot;
       <a href="https://github.com/D3-InteractiveAndApps" target="_blank" rel="noopener">GitHub</a>
+      <br>
+      <a href="https://d3-appsandinteractive.itch.io/venture-tasks" target="_blank" rel="noopener">Report a bug</a> &middot;
+      <a href="privacy.html">Privacy</a>
     </p>
   </footer>
 </main>
@@ -175,6 +204,7 @@
           <p class="settings-help">
             Sign up to keep your sections and tasks synced across every computer you sign in on.
             Optional &mdash; without an account, everything still works, stored on this browser only.
+            <a href="privacy.html" target="_blank" rel="noopener">What gets stored</a>.
           </p>
           <label class="field">
             <span class="field-label">Email</span>
@@ -220,45 +250,63 @@
         </div>
       </section>
 
-      <section class="settings-section">
-        <h3>AI co-pilot</h3>
+      <section class="settings-section" id="reminders-section">
+        <h3>Reminders</h3>
+        <div id="reminders-body"></div>
+      </section>
+
+      <section class="settings-section" id="client-work-section">
+        <h3>Client work</h3>
         <p class="settings-help">
-          Off by default. Connect your own account with whichever provider you already pay for &mdash;
-          your key is stored only in this browser and sent directly from your browser to that provider.
-          It never passes through anything else.
+          Tag tasks with a client and a value (in a task&rsquo;s <strong>&#8943;</strong> details), then export
+          them here as a spreadsheet &mdash; for an invoice, a quarterly tax estimate, or just to see what
+          a client&rsquo;s worth.
         </p>
-
         <label class="field">
-          <span class="field-label">Provider</span>
-          <select id="ai-provider">
-            <option value="none">None (AI features off)</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="openai">ChatGPT (OpenAI)</option>
-            <option value="gemini">Gemini (Google)</option>
-          </select>
+          <span class="field-label">Currency</span>
+          <select id="currency-select"></select>
         </label>
-
-        <div id="ai-provider-fields" hidden>
+        <div class="report-filters">
           <label class="field">
-            <span class="field-label">API key</span>
-            <input id="ai-key" type="password" autocomplete="off" placeholder="Paste your API key" />
+            <span class="field-label">Client</span>
+            <select id="report-client"></select>
           </label>
           <label class="field">
-            <span class="field-label" id="ai-model-label">Model</span>
-            <input id="ai-model" type="text" autocomplete="off" />
+            <span class="field-label">Period</span>
+            <select id="report-period">
+              <option value="this-month">This month</option>
+              <option value="last-month">Last month</option>
+              <option value="this-quarter">This quarter</option>
+              <option value="last-quarter">Last quarter</option>
+              <option value="this-year">This year</option>
+              <option value="last-year">Last year</option>
+              <option value="all" selected>All time</option>
+              <option value="custom">Custom dates&hellip;</option>
+            </select>
           </label>
-          <p class="settings-help" id="ai-model-help"></p>
+          <label class="field">
+            <span class="field-label">Include</span>
+            <select id="report-status">
+              <option value="done">Completed work</option>
+              <option value="open">Still open</option>
+              <option value="all" selected>Both</option>
+            </select>
+          </label>
         </div>
-
+        <div class="report-custom-dates" id="report-custom-dates" hidden>
+          <label class="field"><span class="field-label">From</span><input id="report-from" type="date" /></label>
+          <label class="field"><span class="field-label">To</span><input id="report-to" type="date" /></label>
+        </div>
+        <p class="report-preview" id="report-preview" aria-live="polite"></p>
         <div class="settings-actions">
-          <button id="ai-test-btn" type="button" class="secondary-btn" hidden>Test connection</button>
-          <span class="settings-status" id="ai-settings-status"></span>
+          <button id="report-export-btn" type="button" class="secondary-btn">Download report (.csv)</button>
         </div>
       </section>
 
+
       <section class="settings-section" id="appearance-section">
         <h3>Appearance</h3>
-        <p class="settings-help">Pick one of 30 built-in themes for an instant, cohesive look, or pick a font and override individual colors yourself below — either way, every field stays editable afterward.</p>
+        <p class="settings-help">Pick one of 20 built-in themes for an instant, cohesive look, or pick a font and override individual colors yourself below — either way, every field stays editable afterward.</p>
         <label class="field">
           <span class="field-label">Theme</span>
           <select id="theme-preset-select"></select>
@@ -292,6 +340,10 @@
 
       <section class="settings-section">
         <h3>Your data</h3>
+        <p class="settings-help">Deleted something by mistake? Deleted tasks, sections, and pages are kept for 30 days.</p>
+        <div class="settings-actions">
+          <button id="settings-open-trash-btn" type="button" class="secondary-btn">&#128465;&#65039; Recently deleted</button>
+        </div>
         <p class="settings-help">Export a backup, or move your sections and tasks to another browser or computer.</p>
         <div class="settings-actions">
           <button id="export-btn" type="button" class="secondary-btn">Export JSON</button>
@@ -323,6 +375,56 @@
           <button id="live-calendar-copy-btn" type="button" class="secondary-btn">Copy link</button>
         </div>
         <p class="settings-help" id="live-calendar-status"></p>
+      </section>
+      <section class="settings-section" id="ai-section">
+        <h3>AI co-pilot <span class="settings-optional">optional</span></h3>
+        <p class="settings-help">
+          Off by default, and nothing else in the app needs it. If you already pay for Claude, ChatGPT,
+          or Gemini, you can connect your own API key for task breakdowns, draft replies, and a weekly
+          review. Your key is stored only in this browser and sent directly from your browser to that
+          provider &mdash; it never passes through anything else.
+        </p>
+
+        <label class="field">
+          <span class="field-label">Provider</span>
+          <select id="ai-provider">
+            <option value="none">None (AI features off)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="gemini">Gemini (Google)</option>
+          </select>
+        </label>
+
+        <div id="ai-provider-fields" hidden>
+          <label class="field">
+            <span class="field-label">API key</span>
+            <input id="ai-key" type="password" autocomplete="off" placeholder="Paste your API key" />
+          </label>
+          <label class="field">
+            <span class="field-label" id="ai-model-label">Model</span>
+            <input id="ai-model" type="text" autocomplete="off" />
+          </label>
+          <p class="settings-help" id="ai-model-help"></p>
+        </div>
+
+        <div class="settings-actions">
+          <button id="ai-test-btn" type="button" class="secondary-btn" hidden>Test connection</button>
+          <span class="settings-status" id="ai-settings-status"></span>
+        </div>
+      </section>
+      <section class="settings-section" id="help-section">
+        <h3>Help &amp; privacy</h3>
+        <p class="settings-help">
+          Found a bug, or have an idea? Leave a comment on the itch.io page &mdash; that&rsquo;s where
+          feedback gets read and answered.
+        </p>
+        <div class="settings-actions">
+          <a class="secondary-btn" id="report-bug-link" href="https://d3-appsandinteractive.itch.io/venture-tasks" target="_blank" rel="noopener">Report a bug or suggest a feature</a>
+          <a class="secondary-btn" href="privacy.html" target="_blank" rel="noopener">Privacy policy</a>
+        </div>
+        <div class="settings-actions">
+          <button id="show-welcome-btn" type="button" class="secondary-btn">Show the welcome tour again</button>
+        </div>
       </section>
     </div>
 
@@ -472,6 +574,35 @@
     </div>
     <div class="modal-foot">
       <button id="calendar-add-event-submit" type="button" class="primary-btn">Add event</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay search-overlay" id="search-overlay" hidden>
+  <div class="modal search-modal" id="search-modal" role="dialog" aria-modal="true" aria-label="Search everything">
+    <div class="search-modal-head">
+      <span class="search-modal-icon" aria-hidden="true">&#128269;</span>
+      <input id="global-search-input" type="search" placeholder="Search every page, list, and calendar&hellip;" autocomplete="off" maxlength="200" aria-label="Search everything" aria-controls="global-search-results" />
+      <button id="search-close" type="button" class="del-btn" aria-label="Close search">&times;</button>
+    </div>
+    <div class="search-results" id="global-search-results" role="listbox" aria-label="Results"></div>
+    <div class="search-modal-foot" id="search-modal-foot">&uarr;&darr; to move &middot; Enter to open &middot; Esc to close</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="trash-overlay" hidden>
+  <div class="modal" id="trash-modal" role="dialog" aria-modal="true" aria-labelledby="trash-title">
+    <div class="modal-head">
+      <h2 id="trash-title">Recently deleted</h2>
+      <button id="trash-close" type="button" class="del-btn" aria-label="Close recently deleted">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="settings-help">Deleted tasks, events, sections, and pages stay here for 30 days, then they&rsquo;re removed for good.</p>
+      <div class="trash-list" id="trash-list"></div>
+    </div>
+    <div class="modal-foot trash-foot">
+      <button id="trash-empty-btn" type="button" class="section-del">Empty trash</button>
+      <button id="trash-done-btn" type="button" class="primary-btn">Done</button>
     </div>
   </div>
 </div>

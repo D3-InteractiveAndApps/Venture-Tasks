@@ -1,7 +1,7 @@
 // sw.js — minimal service worker: offline use + fast loading for the
 // home-screen app. Bump VERSION on every deploy so installed copies pick
 // up the new files instead of serving a stale cache forever.
-const VERSION = "v7";
+const VERSION = "v8";
 const CACHE_NAME = `venture-tasks-${VERSION}`;
 
 const APP_SHELL = [
@@ -26,6 +26,13 @@ const APP_SHELL = [
   "./theme.js",
   "./themes.js",
   "./undo.js",
+  "./today.js",
+  "./search.js",
+  "./money.js",
+  "./report.js",
+  "./reminders.js",
+  "./welcome.js",
+  "./privacy.html",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icon-192.png",
@@ -49,6 +56,20 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((names) => Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))))
       .then(() => self.clients.claim())
+  );
+});
+
+// Tapping a reminder notification: bring an already-open copy of the app
+// to the front if there is one, otherwise open it.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || "./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const existing = wins.find((w) => w.url.startsWith(self.registration.scope));
+      if (existing) return existing.focus();
+      return self.clients.openWindow(target);
+    })
   );
 });
 

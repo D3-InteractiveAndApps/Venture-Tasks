@@ -60,6 +60,63 @@ export function advanceDate(dateStr, recurrence) {
   return fmtDate(base);
 }
 
+function addDaysStr(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return fmtDate(d);
+}
+
+// Does a (possibly recurring) dated task/event land on `dateStr`? The
+// anchor date (its own dueDate) always counts; for a recurring one, every
+// later date its recurrence steps onto counts too — the exact same dates
+// the calendar grid projects, since both step forward with advanceDate.
+// Interval patterns use arithmetic instead of stepping, so an event
+// anchored years ago is still cheap to check (and still correct — the old
+// grid projection stopped after 400 steps, which a daily event created
+// more than ~13 months ago would silently run past).
+export function occursOn(task, dateStr) {
+  if (!task || !task.dueDate || !dateStr) return false;
+  if (task.dueDate === dateStr) return true;
+  const r = task.recurrence;
+  if (!r || dateStr < task.dueDate) return false;
+  const anchor = new Date(task.dueDate + "T00:00:00");
+  const target = new Date(dateStr + "T00:00:00");
+  const diffDays = Math.round((target - anchor) / 86400000);
+  const dow = target.getDay();
+  if (r.unit === "days") return diffDays % Math.max(1, r.interval || 1) === 0;
+  if (r.unit === "weeks") return diffDays % (7 * Math.max(1, r.interval || 1)) === 0;
+  if (r.unit === "weekdays") return dow >= 1 && dow <= 5;
+  if (r.unit === "weekend") return dow === 0 || dow === 6;
+  if (r.unit === "custom") return Array.isArray(r.days) && r.days.includes(dow);
+  if (r.unit === "months") {
+    // Month lengths vary, so step exactly the way advanceDate does.
+    let cursor = task.dueDate;
+    for (let i = 0; i < 2400; i++) {
+      const next = advanceDate(cursor, r);
+      if (next === cursor || next > dateStr) return false;
+      if (next === dateStr) return true;
+      cursor = next;
+    }
+  }
+  return false;
+}
+
+// Every date in [startStr, endStr] (inclusive) that a recurring task lands
+// on, EXCLUDING its own anchor date — the anchor is a real, editable row
+// shown separately; these are the read-only projections.
+export function occurrencesInRange(task, startStr, endStr) {
+  const out = [];
+  if (!task || !task.dueDate || !task.recurrence) return out;
+  let d = startStr > task.dueDate ? startStr : addDaysStr(task.dueDate, 1);
+  for (let i = 0; i < 800 && d <= endStr; i++) {
+    if (occursOn(task, d)) out.push(d);
+    d = addDaysStr(d, 1);
+  }
+  return out;
+}
+
+export { addDaysStr };
+
 const WEEKDAY_SHORT_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // Human-readable description of a recurrence, used for the "Repeats" badge

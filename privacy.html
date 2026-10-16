@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Venture Tasks</title>
+<meta name="description" content="What Venture Tasks stores, where it lives, and how to delete it.">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+  :root {
+    --bg: #eaebec; --panel: #ffffff; --text: #16171a; --muted: #5d6066; --border: #d8d9dc; --accent: #c4501d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #18191c; --panel: #222327; --text: #ecedef; --muted: #a3a6ac; --border: #35363b; --accent: #ff8a52; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main {
+    max-width: 720px; margin: 32px auto 64px; padding: 32px 28px 40px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 18px;
+  }
+  @media (max-width: 760px) { main { margin: 0; border-radius: 0; border-left: none; border-right: none; padding: 24px 18px 40px; } }
+  .back { display: inline-block; font-weight: 600; font-size: 14px; color: var(--muted); text-decoration: none; margin-bottom: 18px; }
+  .back:hover { color: var(--accent); }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .updated { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+  .summary {
+    background: color-mix(in srgb, var(--accent) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-radius: 12px; padding: 14px 18px; margin: 0 0 28px;
+  }
+  .summary p { margin: 0; }
+  h2 { font-size: 19px; margin: 32px 0 8px; }
+  p, li { color: var(--text); }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  a { color: var(--accent); }
+  code { font-size: 0.92em; background: var(--bg); padding: 1px 5px; border-radius: 5px; }
+  footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="./">&#8249; Back to Venture Tasks</a>
+  <h1>Privacy</h1>
+  <p class="updated">Last updated October 16, 2026</p>
+
+  <div class="summary">
+    <p><strong>The short version:</strong> your lists live in your own browser unless you choose to sign in. There are no ads, no analytics, no tracking, and nothing is ever sold. If you do sign in, your lists and your email address are stored so they can sync &mdash; and you can delete all of it yourself, at any time, from inside the app.</p>
+  </div>
+
+  <p>Venture Tasks is a free app made by D3 Apps &amp; Interactive. This page explains, in plain language, exactly what it stores and where.</p>
+
+  <h2>If you don&rsquo;t sign in</h2>
+  <p>Everything you enter &mdash; pages, sections, tasks, grocery items, calendar events, client names and values, and anything in <em>Recently deleted</em> &mdash; is saved only in your browser&rsquo;s local storage on that device. It isn&rsquo;t sent to us or anywhere else. Your settings (theme, font, currency, reminder preferences) are stored the same way.</p>
+
+  <h2>If you sign in for sync</h2>
+  <p>Accounts are optional. If you create one, the app stores:</p>
+  <ul>
+    <li><strong>Your email address and password</strong>, handled by <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a>, the service that runs the app&rsquo;s accounts and database. Passwords are stored hashed by Supabase &mdash; we can&rsquo;t see them.</li>
+    <li><strong>Your lists</strong> (the same pages, sections, tasks, events, and recently-deleted items described above), so they can sync between your devices. Database rules ensure an account can only read and change its own data.</li>
+  </ul>
+  <p>Your settings, including an AI provider key if you add one, are <strong>never</strong> uploaded &mdash; they stay in the browser where you entered them.</p>
+
+  <h2>Shared lists and calendars</h2>
+  <p>When you share a list or calendar, everyone you invite can see and edit its contents, and members of a shared Family Calendar can see each other&rsquo;s email addresses (so you know who&rsquo;s on it). Only share with people you trust with that list.</p>
+  <p>If you create a <strong>live calendar link</strong>, anyone who has that link can see your due dates and events in their calendar app without signing in. Keep it private, like a password.</p>
+
+  <h2>Optional AI co-pilot</h2>
+  <p>The AI features are off unless you connect your own API key from Anthropic (Claude), OpenAI (ChatGPT), or Google (Gemini). When you use one, the relevant task text is sent <strong>directly from your browser to that provider</strong> &mdash; never through us &mdash; and is handled under that provider&rsquo;s own privacy terms.</p>
+
+  <h2>Voice commands</h2>
+  <p>Voice commands use your browser&rsquo;s built-in speech recognition. Depending on your browser, the audio may be processed by the browser maker (for example, Chrome sends it to Google and Safari to Apple) to turn it into text. Venture Tasks only ever receives the resulting text, and never records or stores audio.</p>
+
+  <h2>Reminders and notifications</h2>
+  <p>Reminders are worked out entirely on your device. Notifications are shown by your browser or phone and only if you turn them on and grant permission &mdash; you can turn them off any time in the app&rsquo;s Settings or your device settings.</p>
+
+  <h2>Other services the app loads from</h2>
+  <ul>
+    <li><strong>GitHub Pages</strong> hosts the app itself. Like any website host, GitHub may keep standard server logs (such as IP addresses) for security.</li>
+    <li><strong>Google Fonts</strong> supplies the app&rsquo;s typefaces, so your browser requests them from Google.</li>
+    <li><strong>jsDelivr</strong> supplies the Supabase sign-in library when accounts are in use.</li>
+  </ul>
+  <p>Venture Tasks itself uses no cookies, no analytics, no advertising, and no third-party tracking of any kind.</p>
+
+  <h2>Deleting your data</h2>
+  <ul>
+    <li><strong>Your account and everything synced to it:</strong> Settings &rarr; Account &amp; sync &rarr; <em>Delete my account and data</em>. This takes effect immediately and can&rsquo;t be undone. Shared lists you own are deleted for everyone on them.</li>
+    <li><strong>Data on a device:</strong> clear this site&rsquo;s data in your browser settings, or delete pages from inside the app.</li>
+    <li><strong>A backup first?</strong> Settings &rarr; Your data &rarr; <em>Export JSON</em> downloads everything.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>Venture Tasks is a general productivity tool and isn&rsquo;t directed at children under 13.</p>
+
+  <h2>Changes and questions</h2>
+  <p>If this policy changes, the date at the top will change with it. Questions or concerns? Leave a comment on the <a href="https://d3-appsandinteractive.itch.io/venture-tasks" target="_blank" rel="noopener">Venture Tasks itch.io page</a>.</p>
+
+  <footer>Venture Tasks &middot; D3 Apps &amp; Interactive</footer>
+</main>
+</body>
+</html>
