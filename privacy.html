@@ -63,7 +63,7 @@
     <li><strong>Your email address and password</strong>, handled by <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a>, the service that runs the app&rsquo;s accounts and database. Passwords are stored hashed by Supabase &mdash; we can&rsquo;t see them.</li>
     <li><strong>Your lists</strong> (the same pages, sections, tasks, events, and recently-deleted items described above), so they can sync between your devices. Database rules ensure an account can only read and change its own data.</li>
   </ul>
-  <p>Your settings, including an AI provider key if you add one, are <strong>never</strong> uploaded &mdash; they stay in the browser where you entered them.</p>
+  <p>Your settings, including an AI provider key if you add one, are <strong>never</strong> uploaded &mdash; they stay in the browser where you entered them. The one exception is if you turn on <em>push reminders</em> (below): that device&rsquo;s reminder choices are sent so the server knows when to remind you.</p>
 
   <h2>Shared lists and calendars</h2>
   <p>When you share a list or calendar, everyone you invite can see and edit its contents, and members of a shared Family Calendar can see each other&rsquo;s email addresses (so you know who&rsquo;s on it). Only share with people you trust with that list.</p>
@@ -76,7 +76,8 @@
   <p>Voice commands use your browser&rsquo;s built-in speech recognition. Depending on your browser, the audio may be processed by the browser maker (for example, Chrome sends it to Google and Safari to Apple) to turn it into text. Venture Tasks only ever receives the resulting text, and never records or stores audio.</p>
 
   <h2>Reminders and notifications</h2>
-  <p>Reminders are worked out entirely on your device. Notifications are shown by your browser or phone and only if you turn them on and grant permission &mdash; you can turn them off any time in the app&rsquo;s Settings or your device settings.</p>
+  <p>By default, reminders are worked out entirely on your device. Notifications are shown by your browser or phone and only if you turn them on and grant permission &mdash; you can turn them off any time in the app&rsquo;s Settings or your device settings.</p>
+  <p>If you&rsquo;re signed in and turn on <strong>Push reminders to this device</strong>, reminders can arrive even when the app is closed. To do that, the app saves to your account: that device&rsquo;s push address (issued by your browser&rsquo;s push service &mdash; Google for Chrome and Android, Apple for Safari, iPhone and iPad, Mozilla for Firefox), its time zone, its browser name, and your reminder choices. Once a minute the server checks your synced lists for anything due and sends it through that push service. The message is end-to-end encrypted, so the push service delivers it but can&rsquo;t read it. Turning push off, logging out, or deleting your account removes the device&rsquo;s registration.</p>
 
   <h2>Other services the app loads from</h2>
   <ul>

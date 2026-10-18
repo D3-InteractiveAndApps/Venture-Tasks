@@ -1,21 +1,23 @@
 // reminders.js — notifications and the app-icon badge.
 //
-// Honest scope: there's no server here, so nothing can wake a fully
-// closed app. Reminders are worked out on this device and fire while
-// Venture Tasks is open — in the foreground or the background (a minimized
-// window, a background tab, an installed app that hasn't been swiped
-// away). Three opt-in pieces:
-//   • Daily summary — once a day, at or after a chosen time: what's
-//     overdue, due today, daily habits left, and today's events.
-//   • Event reminders — N minutes before a Family Calendar event that has
-//     a time set (including today's occurrence of a repeating one).
-//   • App-icon badge — the Today count on the installed app's icon, where
-//     the platform supports it (Badging API).
-// Everything below `computeDueReminders` is pure and unit tested; the rest
-// is the runtime + the Settings UI.
+// Two ways reminders reach you (Settings → Reminders):
+//   • On this device — worked out right here and shown while Venture Tasks
+//     is open, in the foreground or background (a minimized window, a
+//     background tab, an installed app that hasn't been swiped away).
+//   • Push to this device (push.js) — sent by the push-reminders server
+//     piece, so they arrive even when the app is fully closed. When push is
+//     on for a device, this file stops showing its own copies there, so
+//     nothing arrives twice.
+// What's due is decided by reminder-engine.js, the same code the server
+// runs: the daily summary, calendar events (each event can have its own
+// "Remind me", or use the default lead time), and to-dos with a
+// "Remind me at" time.
 
 import { computeTodayItems } from "./today.js";
 import { todayStr, fmtDate } from "./dates.js";
+import { computeReminders, localStamp } from "./reminder-engine.js";
+import { isPushOnHere, pushSupport, enablePush, disablePush, refreshPush, sendTestPush, initPush } from "./push.js";
+import * as sync from "./sync.js";
 
 export const DEFAULT_REMINDERS = { daily: false, dailyTime: "08:00", events: false, eventLead: 15, badge: true };
 const SENT_KEY = "ventureTasks:remindersSent";
@@ -24,22 +26,10 @@ export function reminderSettings(settings) {
   return Object.assign({}, DEFAULT_REMINDERS, (settings && settings.reminders) || {});
 }
 
-function at(dateStr, hhmm) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "");
-  const d = new Date(dateStr + "T00:00:00");
-  if (m) d.setHours(Number(m[1]), Number(m[2]), 0, 0);
-  return d;
-}
-
-function fmtTime(hhmm) {
-  const d = at("2000-01-01", hhmm);
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-function listPreview(entries, max) {
-  const names = entries.slice(0, max).map((e) => e.task.text || "Untitled");
-  const extra = entries.length - names.length;
-  return names.join(", ") + (extra > 0 ? " +" + extra + " more" : "");
+// The part of the settings the push server needs.
+export function serverPrefs(settings) {
+  const r = reminderSettings(settings);
+  return { daily: !!r.daily, dailyTime: r.dailyTime, events: !!r.events, eventLead: Number(r.eventLead) || 0 };
 }
 
 // Returns [{ key, title, body, tag, silent }] for reminders that are due
@@ -47,58 +37,17 @@ function listPreview(entries, max) {
 // (e.g. the daily summary when the app is already in front of you, or a
 // day with nothing on it) without showing anything.
 export function computeDueReminders(state, settings, now, sent, opts) {
-  const r = reminderSettings(settings);
-  const nowDate = now || new Date();
-  const today = fmtDate(nowDate);
-  const already = sent || {};
-  const visible = !!(opts && opts.appVisible);
-  const out = [];
-  const items = computeTodayItems(state, today);
+  return computeReminders(state, serverPrefs(settings), localStamp(now || new Date()), sent || {}, opts);
+}
 
-  if (r.daily) {
-    const key = "daily:" + today;
-    if (!already[key] && nowDate >= at(today, r.dailyTime)) {
-      const undoneDaily = items.daily.filter((e) => !e.task.done);
-      const parts = [];
-      if (items.overdue.length) parts.push(items.overdue.length + " overdue");
-      if (items.dueToday.length) parts.push(items.dueToday.length + " due today");
-      if (undoneDaily.length) parts.push(undoneDaily.length + " daily");
-      if (items.events.length) parts.push(items.events.length + " event" + (items.events.length === 1 ? "" : "s"));
-      const nothing = parts.length === 0;
-      const highlights = items.overdue.concat(items.dueToday, undoneDaily);
-      out.push({
-        key,
-        tag: "vt-daily",
-        title: "Today: " + (nothing ? "nothing due" : parts.join(" · ")),
-        body: highlights.length ? listPreview(highlights, 3) : (items.events.length ? listPreview(items.events, 3) : "Enjoy the clear day."),
-        // Already looking at the app, or nothing to say: don't buzz.
-        silent: nothing || visible
-      });
-    }
+// Asks for notification permission if it hasn't been asked yet — used when
+// someone sets a "Remind me" on a single event or to-do.
+export async function ensureNotificationPermission() {
+  if (!("Notification" in window)) return "unsupported";
+  if (Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (e) { /* old Safari */ }
   }
-
-  if (r.events) {
-    const lead = Math.max(0, Number(r.eventLead) || 0) * 60000;
-    items.events.forEach((e) => {
-      if (!e.task.eventTime || e.task.done) return;
-      const key = "event:" + e.task.id + ":" + today;
-      if (already[key]) return;
-      const start = at(today, e.task.eventTime);
-      const fireAt = new Date(start.getTime() - lead);
-      // Only within the window [lead time before, 10 min after start] —
-      // opening the app at 6pm shouldn't fire a reminder for a 9am event.
-      if (nowDate < fireAt || nowDate > new Date(start.getTime() + 10 * 60000)) return;
-      const mins = Math.round((start - nowDate) / 60000);
-      out.push({
-        key,
-        tag: "vt-event-" + e.task.id,
-        title: (e.task.text || "Event") + " — " + fmtTime(e.task.eventTime),
-        body: mins > 1 ? "Starts in " + mins + " minutes · " + (e.page.name || "Calendar") : mins >= -1 ? "Starting now · " + (e.page.name || "Calendar") : "Started at " + fmtTime(e.task.eventTime) + " · " + (e.page.name || "Calendar"),
-        silent: false
-      });
-    });
-  }
-  return out;
+  return Notification.permission;
 }
 
 // ---- runtime ----
@@ -154,6 +103,9 @@ export function runReminderCheck(store) {
   const settings = store.getSettings();
   updateBadge(store.getState(), settings);
   if (!("Notification" in window) || Notification.permission !== "granted") return [];
+  // Push is on for this device: the server sends these (even when the app
+  // is closed), so showing them here as well would double up.
+  if (isPushOnHere()) return [];
   const sent = readSent();
   const due = computeDueReminders(store.getState(), settings, new Date(), sent, {
     appVisible: document.visibilityState === "visible" && (typeof document.hasFocus !== "function" || document.hasFocus())
@@ -169,6 +121,7 @@ export function runReminderCheck(store) {
 }
 
 export function initReminders(store) {
+  initPush(() => serverPrefs(store.getSettings()));
   const check = () => runReminderCheck(store);
   check();
   setInterval(check, 30 * 1000);
@@ -180,11 +133,10 @@ export function initReminders(store) {
 
 export function mountReminderSettings(container, store, onChange) {
   container.innerHTML = "";
-  const support = notificationSupport();
 
   const help = document.createElement("p");
   help.className = "settings-help";
-  help.textContent = "Get a nudge for what's due without opening the app. Reminders are worked out on this device — there's no server sending them — so they arrive while Venture Tasks is open, even in the background, but can't reach a fully closed app.";
+  help.textContent = "Get a nudge for what's due. Individual events and to-dos can also have their own \"Remind me\" time (in the event editor, or a to-do's ⋯ details).";
   container.appendChild(help);
 
   const status = document.createElement("p");
@@ -228,6 +180,27 @@ export function mountReminderSettings(container, store, onChange) {
   const badgeBox = checkbox("reminder-badge");
   row("Show the Today count on the app icon", badgeBox);
 
+  // ---- Push to this device ----
+  const pushWrap = document.createElement("div");
+  pushWrap.className = "reminder-push";
+  const pushTitle = document.createElement("p");
+  pushTitle.className = "reminder-push-title";
+  pushTitle.textContent = "Even when the app is closed";
+  pushWrap.appendChild(pushTitle);
+  const pushBox = checkbox("reminder-push");
+  const pushLabel = document.createElement("label");
+  pushLabel.className = "reminder-row";
+  pushLabel.appendChild(pushBox);
+  const pushSpan = document.createElement("span");
+  pushSpan.textContent = "Push reminders to this device";
+  pushLabel.appendChild(pushSpan);
+  pushWrap.appendChild(pushLabel);
+  const pushStatus = document.createElement("p");
+  pushStatus.className = "settings-help reminders-push-status";
+  pushStatus.id = "reminder-push-status";
+  pushWrap.appendChild(pushStatus);
+  container.appendChild(pushWrap);
+
   const testBtn = document.createElement("button");
   testBtn.type = "button";
   testBtn.className = "secondary-btn";
@@ -236,11 +209,21 @@ export function mountReminderSettings(container, store, onChange) {
   const actions = document.createElement("div");
   actions.className = "settings-actions";
   actions.appendChild(testBtn);
+  const testStatus = document.createElement("span");
+  testStatus.className = "settings-status";
+  testStatus.id = "reminder-test-status";
+  actions.appendChild(testStatus);
   container.appendChild(actions);
+
+  let pushBusy = false;
+  let pushError = "";
 
   function refresh() {
     const r = reminderSettings(store.getSettings());
     const s = notificationSupport();
+    const ps = pushSupport();
+    const st = sync.getStatus();
+    const pushOn = isPushOnHere();
     dailyBox.checked = !!r.daily;
     dailyTime.value = r.dailyTime;
     dailyTime.disabled = !r.daily;
@@ -249,7 +232,9 @@ export function mountReminderSettings(container, store, onChange) {
     lead.disabled = !r.events;
     badgeBox.checked = !!r.badge;
     badgeBox.disabled = !s.badge;
-    testBtn.hidden = !(r.daily || r.events);
+    testBtn.hidden = !(r.daily || r.events || pushOn);
+    testBtn.textContent = pushOn ? "Send a test push" : "Send a test notification";
+
     let msg = "";
     if (!s.notifications) {
       msg = s.isIOS && !s.standalone
@@ -259,23 +244,48 @@ export function mountReminderSettings(container, store, onChange) {
       msg = "Notifications are blocked for this site. Allow them in your browser or device settings, then come back here.";
     } else if ((r.daily || r.events) && s.permission !== "granted") {
       msg = "Waiting for permission — your browser should be asking.";
+    } else if (pushOn) {
+      msg = "Reminders are on, and pushed to this device by your Venture Tasks server.";
     } else if (r.daily || r.events) {
-      msg = "Reminders are on for this device.";
+      msg = "Reminders are on for this device while Venture Tasks is open (even in the background).";
     }
     if (!s.badge) msg += (msg ? " " : "") + "(The app-icon count needs an installed app on a supporting platform.)";
     status.textContent = msg;
     status.hidden = !msg;
     [dailyBox, eventsBox].forEach((b) => { b.disabled = !s.notifications; });
+
+    // Push block
+    pushWrap.hidden = !ps.configured;
+    pushBox.checked = pushOn;
+    let pmsg = "";
+    let canToggle = true;
+    if (pushBusy) { pmsg = pushOn ? "Turning off…" : "Setting up push…"; canToggle = false; }
+    else if (pushError) pmsg = pushError;
+    else if (!ps.supported) {
+      pmsg = ps.isIOS && !ps.standalone
+        ? "Add Venture Tasks to your Home Screen first (Share → Add to Home Screen), then open it from there to turn this on."
+        : "This browser can't receive push messages.";
+      canToggle = pushOn;
+    } else if (!st.loggedIn) {
+      pmsg = "Sign in under Account & sync to use this — push reminders are worked out from your synced data.";
+      canToggle = pushOn;
+    } else if (pushOn) {
+      pmsg = "On. Reminders arrive here even when Venture Tasks is closed (checked about once a minute).";
+    } else {
+      pmsg = "Without this, reminders only arrive while the app is open (even in the background).";
+    }
+    pushStatus.textContent = pmsg;
+    pushStatus.classList.toggle("err", !!pushError && !pushBusy);
+    pushBox.disabled = !canToggle;
   }
 
   async function save(patch, wantsPermission) {
     const next = Object.assign(reminderSettings(store.getSettings()), patch);
     store.setSettings({ reminders: next });
-    if (wantsPermission && "Notification" in window && Notification.permission === "default") {
-      try { await Notification.requestPermission(); } catch (e) { /* older Safari: callback form only */ }
-    }
+    if (wantsPermission) await ensureNotificationPermission();
     refresh();
     runReminderCheck(store);
+    refreshPush(serverPrefs(store.getSettings()));
     if (typeof onChange === "function") onChange();
   }
 
@@ -284,14 +294,49 @@ export function mountReminderSettings(container, store, onChange) {
   eventsBox.addEventListener("change", () => save({ events: eventsBox.checked }, eventsBox.checked));
   lead.addEventListener("change", () => save({ eventLead: Number(lead.value) }, false));
   badgeBox.addEventListener("change", () => save({ badge: badgeBox.checked }, false));
+
+  pushBox.addEventListener("change", async () => {
+    const want = pushBox.checked;
+    pushBusy = true;
+    pushError = "";
+    testStatus.textContent = "";
+    refresh();
+    try {
+      if (want) await enablePush(serverPrefs(store.getSettings()));
+      else await disablePush();
+    } catch (e) {
+      pushError = (e && e.message) || "Couldn't set up push.";
+    }
+    pushBusy = false;
+    refresh();
+    if (typeof onChange === "function") onChange();
+  });
+
   testBtn.addEventListener("click", async () => {
+    testStatus.textContent = "";
+    testStatus.className = "settings-status";
+    if (isPushOnHere()) {
+      testBtn.disabled = true;
+      testStatus.textContent = "Sending…";
+      try {
+        const res = await sendTestPush();
+        if (res.sent) { testStatus.textContent = "Sent — it should pop up in a few seconds."; testStatus.classList.add("ok"); }
+        else { testStatus.textContent = res.error || "The push service didn't accept it. Try turning push off and on again."; testStatus.classList.add("err"); }
+      } catch (e) {
+        testStatus.textContent = (e && e.message) || "Couldn't reach the push server.";
+        testStatus.classList.add("err");
+      }
+      testBtn.disabled = false;
+      return;
+    }
     if (!("Notification" in window)) return;
-    if (Notification.permission === "default") { try { await Notification.requestPermission(); } catch (e) { /* ignore */ } }
-    if (Notification.permission !== "granted") { refresh(); return; }
+    if ((await ensureNotificationPermission()) !== "granted") { refresh(); return; }
     const items = computeTodayItems(store.getState());
     show({ title: "Venture Tasks reminders are working", body: items.pendingCount ? items.pendingCount + " thing" + (items.pendingCount === 1 ? "" : "s") + " on your plate today." : "Nothing due today.", tag: "vt-test" });
   });
 
+  let unsub = null;
+  unsub = sync.onStatusChange(() => { if (container.isConnected) refresh(); else if (unsub) unsub(); });
   refresh();
   return refresh;
 }

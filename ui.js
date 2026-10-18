@@ -15,6 +15,8 @@ import { pickInk } from "./themes.js";
 import { computeTodayItems } from "./today.js";
 import { searchEverything, highlightRuns } from "./search.js";
 import { formatMoney, normalizeCurrency } from "./money.js";
+import { makeReorderable } from "./drag.js";
+import { ensureNotificationPermission } from "./reminders.js";
 import { isWelcomeDismissed, setWelcomeDismissed, isFreshState, buildSampleData, buildWelcomeCard } from "./welcome.js";
 import * as sync from "./sync.js";
 
@@ -130,6 +132,7 @@ export function initUI(store, ai) {
   const todayCloseBtn = document.getElementById("today-close");
 
   const sharePageBtn = document.getElementById("share-page-btn");
+  const pageColorBtn = document.getElementById("page-color-btn");
   const shareOverlay = document.getElementById("share-overlay");
   const sharePageName = document.getElementById("share-page-name");
   const shareClose = document.getElementById("share-close");
@@ -178,6 +181,10 @@ export function initUI(store, ai) {
   const calendarAddEventRecur = document.getElementById("calendar-add-event-recur");
   const calendarAddEventCustomDays = document.getElementById("calendar-add-event-custom-days");
   const calendarAddEventSubmit = document.getElementById("calendar-add-event-submit");
+  const calendarAddEventDelete = document.getElementById("calendar-add-event-delete");
+  const calendarAddEventNote = document.getElementById("calendar-add-event-note");
+  const calendarAddEventRemind = document.getElementById("calendar-add-event-remind");
+  const calendarAddEventTitle = document.getElementById("calendar-add-event-title");
 
   const openDetailsIds = {};
   let reviewCtl = null;
@@ -205,6 +212,9 @@ export function initUI(store, ai) {
   // on a day cell) is adding to — set when it opens, read on submit since
   // the modal is static DOM, not rebuilt per render like the grid is.
   let calendarAddEventPageId = null;
+  // Set while the event modal is editing an existing event rather than
+  // adding a new one (✎ on a chip in the day popup / agenda).
+  let calendarEditTaskId = null;
   // Family calendar view state — kept here rather than in the store since
   // it's purely local display state (which month you're looking at, which
   // day is selected for the quick-add form), not data anyone else needs to
@@ -233,6 +243,10 @@ export function initUI(store, ai) {
   // Set when a global-search result is opened; consumed at the end of the
   // next render (the row only exists once that render has built it).
   let pendingRevealTaskId = null;
+  // Keyboard reordering (arrow keys on a drag handle) re-renders the list;
+  // put focus back on the same handle afterwards so you can keep going.
+  let pendingFocusHandleTaskId = null;
+  let pendingFocusSectionId = null;
 
   // Plain case-insensitive substring match — used for the live filter as
   // you type, since it needs to be predictable (what you see is what's
@@ -411,32 +425,6 @@ export function initUI(store, ai) {
     }
   }
 
-  // Touch devices can't drag-and-drop (see the move-btns CSS), so this pair
-  // of up/down buttons is the touch equivalent for reordering — same idea
-  // for both sections and tasks-within-a-section, just given a different
-  // pair of callbacks and labels by the two call sites below.
-  function buildMoveBtns(label, canUp, canDown, onUp, onDown) {
-    const wrap = document.createElement("span");
-    wrap.className = "move-btns";
-    const up = document.createElement("button");
-    up.type = "button";
-    up.className = "move-btn";
-    up.textContent = "↑";
-    up.setAttribute("aria-label", "Move " + label + " up");
-    up.disabled = !canUp;
-    up.addEventListener("click", onUp);
-    const down = document.createElement("button");
-    down.type = "button";
-    down.className = "move-btn";
-    down.textContent = "↓";
-    down.setAttribute("aria-label", "Move " + label + " down");
-    down.disabled = !canDown;
-    down.addEventListener("click", onDown);
-    wrap.appendChild(up);
-    wrap.appendChild(down);
-    return wrap;
-  }
-
   function celebrate(wrap, checkEl) {
     const phrase = CELEBRATE_PHRASES[Math.floor(Math.random() * CELEBRATE_PHRASES.length)];
     const badge = document.createElement("span");
@@ -522,6 +510,14 @@ export function initUI(store, ai) {
     text.textContent = task.text || "";
     row.appendChild(text);
 
+    if (task.note) {
+      const note = document.createElement("span");
+      note.className = "today-row-note";
+      note.textContent = "📝 " + task.note;
+      note.title = task.note;
+      row.appendChild(note);
+    }
+
     if (task.isDaily) {
       const dailyBadge = document.createElement("span");
       dailyBadge.className = "today-daily-badge";
@@ -606,62 +602,39 @@ export function initUI(store, ai) {
   }
 
   function buildTaskRow(task, sectionId, sectionName, otherSections, isGrocery, siblingList, idx) {
-    const beforeTaskIdForDrop = siblingList[idx + 1] ? siblingList[idx + 1].id : null;
     const wrap = document.createElement("li");
     wrap.className = "row-wrap" + (task.done ? " done" : "") + (!isGrocery && task.isSomeday ? " someday" : "");
     wrap.dataset.taskId = task.id;
-    wrap.draggable = true;
+    wrap.dataset.id = task.id; // what drag.js reports as beforeId
     wrap.style.borderLeftColor = task.color || "transparent";
-
-    wrap.addEventListener("dragstart", (e) => {
-      e.stopPropagation();
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", JSON.stringify({ kind: "task", taskId: task.id, from: sectionId }));
-      wrap.classList.add("dragging");
-    });
-    wrap.addEventListener("dragend", () => wrap.classList.remove("dragging"));
-
-    // Row-level drop target: lets a task be reordered within its own section,
-    // or dropped at a precise position in a different section — not just
-    // appended to the end of whichever card it lands on.
-    wrap.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.dataTransfer.dropEffect = "move";
-      wrap.classList.add("drag-over-row");
-    });
-    wrap.addEventListener("dragleave", (e) => {
-      if (!wrap.contains(e.relatedTarget)) wrap.classList.remove("drag-over-row");
-    });
-    wrap.addEventListener("drop", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      wrap.classList.remove("drag-over-row");
-      const raw = e.dataTransfer.getData("text/plain");
-      if (!raw) return;
-      let payload;
-      try { payload = JSON.parse(raw); } catch (err) { return; }
-      if (!payload || payload.kind !== "task" || !payload.taskId || payload.taskId === task.id) return;
-      const rect = wrap.getBoundingClientRect();
-      const dropBefore = e.clientY < rect.top + rect.height / 2;
-      store.reorderTaskInSection(payload.taskId, sectionId, dropBefore ? task.id : beforeTaskIdForDrop);
-    });
 
     const row = document.createElement("div");
     row.className = "row";
 
-    const handle = document.createElement("span");
+    // One compact handle for every kind of pointer (mouse, finger, pen) —
+    // drag it to reorder, including into another section; or focus it and
+    // use the arrow keys. See drag.js.
+    const handle = document.createElement("button");
+    handle.type = "button";
     handle.className = "drag-handle";
-    handle.setAttribute("aria-hidden", "true");
     handle.textContent = "⋮⋮";
-
-    const moveBtns = buildMoveBtns(
-      "\"" + (task.text || "item") + "\"",
-      idx > 0,
-      idx < siblingList.length - 1,
-      () => store.reorderTaskInSection(task.id, sectionId, siblingList[idx - 1] ? siblingList[idx - 1].id : null),
-      () => store.reorderTaskInSection(task.id, sectionId, siblingList[idx + 2] ? siblingList[idx + 2].id : null)
-    );
+    handle.setAttribute("aria-label", "Reorder \"" + (task.text || "item") + "\" (drag, or use the arrow keys)");
+    makeReorderable(handle, {
+      item: wrap,
+      root: sectionsEl,
+      zoneSelector: "ul.list",
+      itemSelector: "li.row-wrap",
+      onDrop: ({ zoneId, beforeId }) => store.reorderTaskInSection(task.id, zoneId || sectionId, beforeId),
+      onKey: (dir) => {
+        if (dir < 0 && idx > 0) {
+          pendingFocusHandleTaskId = task.id;
+          store.reorderTaskInSection(task.id, sectionId, siblingList[idx - 1].id);
+        } else if (dir > 0 && idx < siblingList.length - 1) {
+          pendingFocusHandleTaskId = task.id;
+          store.reorderTaskInSection(task.id, sectionId, siblingList[idx + 2] ? siblingList[idx + 2].id : null);
+        }
+      }
+    });
 
     const colorInput = document.createElement("input");
     colorInput.type = "color";
@@ -688,13 +661,42 @@ export function initUI(store, ai) {
       celebrate(wrap, check);
     }
 
-    const label = document.createElement("label");
+    // Always editable: tap (or press Enter on) the text to rename it in
+    // place — Enter or tapping away saves, Escape cancels. No more deleting
+    // and re-adding an item just to fix a typo.
+    const label = document.createElement("span");
     label.className = "row-text";
-    label.setAttribute("for", check.id);
+    label.tabIndex = 0;
+    label.title = "Tap to edit";
     label.textContent = task.text || "";
+    const startEdit = () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "row-text-input";
+      input.value = task.text || "";
+      input.maxLength = 200;
+      input.setAttribute("aria-label", "Edit \"" + (task.text || "") + "\"");
+      let finished = false;
+      const finishEdit = (save) => {
+        if (finished) return;
+        finished = true;
+        const val = input.value.trim();
+        if (save && val && val !== task.text) store.updateTask(task.id, { text: val });
+        else if (input.isConnected) input.replaceWith(label);
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); finishEdit(true); }
+        else if (e.key === "Escape") { e.preventDefault(); finishEdit(false); }
+      });
+      input.addEventListener("blur", () => finishEdit(true));
+      label.replaceWith(input);
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    };
+    label.addEventListener("click", startEdit);
+    label.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); startEdit(); } });
 
     row.appendChild(handle);
-    row.appendChild(moveBtns);
     row.appendChild(check);
     row.appendChild(colorInput);
     row.appendChild(label);
@@ -714,6 +716,22 @@ export function initUI(store, ai) {
         recurBadge.setAttribute("aria-label", "Repeating task");
         recurBadge.textContent = "↻";
         row.appendChild(recurBadge);
+      }
+      if (task.note) {
+        const noteBadge = document.createElement("span");
+        noteBadge.className = "recur-badge note-badge";
+        noteBadge.title = task.note;
+        noteBadge.setAttribute("aria-label", "Has a note");
+        noteBadge.textContent = "📝";
+        row.appendChild(noteBadge);
+      }
+      if (task.remindAt && !task.done) {
+        const remBadge = document.createElement("span");
+        remBadge.className = "recur-badge remind-badge";
+        remBadge.title = "Reminder: " + formatRemindAt(task.remindAt);
+        remBadge.setAttribute("aria-label", "Reminder set for " + formatRemindAt(task.remindAt));
+        remBadge.textContent = "⏰";
+        row.appendChild(remBadge);
       }
       if (task.isDaily) {
         const dailyBadge = document.createElement("span");
@@ -771,6 +789,12 @@ export function initUI(store, ai) {
     }
 
     return wrap;
+  }
+
+  function formatRemindAt(v) {
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return v;
+    return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
 
   function buildTaskDetailsPanel(wrap, task, sectionId, otherSections, sectionName, detailsToggle) {
@@ -969,6 +993,55 @@ export function initUI(store, ai) {
     clientValueRow.appendChild(valueField);
     panel.appendChild(clientValueRow);
 
+    // "Remind me at" — a one-off nudge at a specific date + time, on top of
+    // (and independent from) the due date. Delivered by Settings →
+    // Reminders: on-device while the app is open, or by push when that's on.
+    const remindRow = document.createElement("div");
+    remindRow.className = "detail-row";
+    const remindField = document.createElement("div");
+    remindField.className = "detail-field";
+    const remindLabel = document.createElement("span");
+    remindLabel.className = "detail-label";
+    remindLabel.textContent = "Remind me";
+    const remindInput = document.createElement("input");
+    remindInput.type = "datetime-local";
+    remindInput.className = "remind-at-input";
+    remindInput.value = task.remindAt || "";
+    remindInput.setAttribute("aria-label", "Remind me at");
+    remindInput.addEventListener("change", () => {
+      const v = (remindInput.value || "").slice(0, 16) || null;
+      if (v) ensureNotificationPermission();
+      store.updateTask(task.id, { remindAt: v });
+    });
+    remindField.appendChild(remindLabel);
+    remindField.appendChild(remindInput);
+    remindRow.appendChild(remindField);
+    if (task.remindAt) {
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "link-btn remind-clear";
+      clear.textContent = "Clear";
+      clear.addEventListener("click", () => store.updateTask(task.id, { remindAt: null }));
+      remindRow.appendChild(clear);
+    }
+    panel.appendChild(remindRow);
+
+    const noteField = document.createElement("label");
+    noteField.className = "detail-field detail-note";
+    const noteLabel = document.createElement("span");
+    noteLabel.className = "detail-label";
+    noteLabel.textContent = "Notes";
+    const noteInput = document.createElement("textarea");
+    noteInput.className = "task-note-input";
+    noteInput.rows = 2;
+    noteInput.maxLength = 2000;
+    noteInput.placeholder = "Details, links, anything you don't want to forget";
+    noteInput.value = task.note || "";
+    noteInput.addEventListener("change", () => store.updateTask(task.id, { note: noteInput.value.trim() || null }));
+    noteField.appendChild(noteLabel);
+    noteField.appendChild(noteInput);
+    panel.appendChild(noteField);
+
     if (ai.isConfigured()) {
       const aiRow = document.createElement("div");
       aiRow.className = "ai-actions";
@@ -1123,6 +1196,7 @@ export function initUI(store, ai) {
       // text itself (no icon text node) so every existing test doing an
       // exact textContent comparison against the page name still passes.
       tab.dataset.pageType = p.type || "tasks";
+      if (p.color) { tab.classList.add("has-color"); tab.style.setProperty("--page-color", p.color); }
       tab.textContent = (p.sharedPageId ? "\u{1F465} " : "") + (p.name || "Untitled");
       tab.title = (p.name || "Untitled") + (p.sharedPageId ? " (shared list)" : "");
       tab.addEventListener("click", () => {
@@ -1211,14 +1285,18 @@ export function initUI(store, ai) {
   // entries pulled in from a linked list are read-only here (editing
   // belongs on the list itself) and instead get a little tag that jumps
   // to that list's page, same pattern as the Today panel's page tag.
-  function buildCalendarEventChip(entry) {
+  // `detailed` (day popup + agenda, where there's room) adds the ✎ edit
+  // button and shows the event's note under it; the compact month-grid
+  // chip just gets a small 📝 marker when there's a note.
+  function buildCalendarEventChip(entry, detailed) {
     const task = entry.task;
     const chip = document.createElement("div");
     chip.className = "calendar-event-chip" + (task.done ? " is-done" : "") + (entry.virtual ? " is-virtual" : "");
     // On the mobile grid the chip collapses to a plain color dot (see
     // styles.css) with its text hidden, so the title gives a tap-and-hold
     // / hover way to see what it is without opening the day popup.
-    chip.title = (task.text || "") + (task.eventTime ? " – " + formatEventTime(task.eventTime) : "");
+    chip.title = (task.text || "") + (task.eventTime ? " – " + formatEventTime(task.eventTime) : "") + (task.note ? "\n" + task.note : "");
+    chip.dataset.taskId = task.id;
 
     if (entry.virtual) {
       // A projected occurrence of a recurring event — there's no real task
@@ -1296,6 +1374,41 @@ export function initUI(store, ai) {
       }
     }
 
+    // Own-calendar events (including a projected occurrence of a repeating
+    // one, which edits the whole series) can be opened in the full editor.
+    const ownEvent = entry.editable || (entry.virtual && !entry.pageName);
+    if (task.note && !detailed) {
+      const mark = document.createElement("span");
+      mark.className = "calendar-event-note-mark";
+      mark.textContent = "📝";
+      mark.setAttribute("aria-label", "Has a note");
+      chip.insertBefore(mark, chip.querySelector(".calendar-event-del") || null);
+    }
+    if (detailed && ownEvent) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "calendar-event-edit";
+      edit.textContent = "✎";
+      edit.title = entry.virtual ? "Edit this repeating event (all dates)" : "Edit event, notes & reminder";
+      edit.setAttribute("aria-label", "Edit \"" + (task.text || "") + "\"");
+      edit.addEventListener("click", () => {
+        const pageId = task.pageId || activePageId;
+        calendarDayPopupDate = null;
+        calendarDayOverlay.hidden = true;
+        openCalendarAddEvent(pageId, task.dueDate, task);
+      });
+      chip.insertBefore(edit, chip.querySelector(".calendar-event-del") || null);
+    }
+    if (detailed && task.note) {
+      const wrap = document.createElement("div");
+      wrap.className = "calendar-event-wrap";
+      wrap.appendChild(chip);
+      const note = document.createElement("p");
+      note.className = "calendar-event-note";
+      note.textContent = task.note;
+      wrap.appendChild(note);
+      return wrap;
+    }
     return chip;
   }
 
@@ -1320,7 +1433,7 @@ export function initUI(store, ai) {
       none.textContent = "Nothing on this day.";
       calendarDayFullEvents.appendChild(none);
     } else {
-      entries.forEach((entry) => calendarDayFullEvents.appendChild(buildCalendarEventChip(entry)));
+      entries.forEach((entry) => calendarDayFullEvents.appendChild(buildCalendarEventChip(entry, true)));
     }
     calendarDayOverlay.hidden = false;
   }
@@ -1417,7 +1530,7 @@ export function initUI(store, ai) {
 
       const events = document.createElement("div");
       events.className = "calendar-agenda-events";
-      entries.forEach((entry) => events.appendChild(buildCalendarEventChip(entry)));
+      entries.forEach((entry) => events.appendChild(buildCalendarEventChip(entry, true)));
       day.appendChild(events);
       list.appendChild(day);
     }
@@ -1558,6 +1671,19 @@ export function initUI(store, ai) {
       modeToggle.appendChild(b);
     });
     toolbarRight.appendChild(modeToggle);
+
+    // Share / Linked lists / Color live here too: the full-screen calendar
+    // hides the page header (and on a phone, "‹ Lists" goes straight home),
+    // so without this there was no way to share a calendar at all.
+    const menuBtn = document.createElement("button");
+    menuBtn.type = "button";
+    menuBtn.className = "secondary-btn calendar-menu-btn";
+    menuBtn.textContent = page.sharedPageId ? "\u{1F465} ⋯" : "⋯";
+    menuBtn.title = "Share, linked lists, and color";
+    menuBtn.setAttribute("aria-label", "Calendar options: share, linked lists, color");
+    menuBtn.setAttribute("aria-haspopup", "true");
+    menuBtn.addEventListener("click", () => openPageMenu(menuBtn, page, { withActions: true }));
+    toolbarRight.appendChild(menuBtn);
 
     const addEventBtn = document.createElement("button");
     addEventBtn.type = "button";
@@ -1756,6 +1882,89 @@ export function initUI(store, ai) {
     mobileLayoutQuery.addEventListener("change", () => render(store.getState()));
   }
 
+  // --- page menu: color (any page) + share / linked lists (calendars) ---
+  // A small popover anchored to a button. Used by the color dot next to a
+  // page's title and by the full-screen calendar's own ⋯ button (the
+  // calendar hides the page header, which is where Share used to live —
+  // on a phone there was no way to share a calendar at all).
+  const PAGE_COLORS = [
+    [null, "Default"], ["#e8622c", "Orange"], ["#e0b23d", "Amber"], ["#4c9a5b", "Green"], ["#2bb6a3", "Teal"],
+    ["#3d8bff", "Blue"], ["#6366f1", "Indigo"], ["#a855f7", "Purple"], ["#e05f8a", "Pink"], ["#c6483a", "Red"],
+    ["#8a6d3b", "Brown"], ["#6b6e73", "Slate"]
+  ];
+  let pageMenuEl = null;
+  function closePageMenu() {
+    if (!pageMenuEl) return;
+    pageMenuEl.remove();
+    pageMenuEl = null;
+    document.removeEventListener("pointerdown", onPageMenuOutside, true);
+    document.removeEventListener("keydown", onPageMenuKey, true);
+  }
+  function onPageMenuOutside(e) { if (pageMenuEl && !pageMenuEl.contains(e.target)) closePageMenu(); }
+  function onPageMenuKey(e) { if (e.key === "Escape") { e.preventDefault(); closePageMenu(); } }
+
+  function openPageMenu(anchor, page, opts) {
+    closePageMenu();
+    const o = opts || {};
+    const menu = document.createElement("div");
+    menu.className = "page-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", (page.name || "Page") + " options");
+
+    if (o.withActions) {
+      const action = (icon, text, fn, id) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "page-menu-item";
+        b.setAttribute("role", "menuitem");
+        if (id) b.id = id;
+        b.textContent = icon + "  " + text;
+        b.addEventListener("click", () => { closePageMenu(); fn(); });
+        menu.appendChild(b);
+      };
+      action("\u{1F465}", page.sharedPageId ? "Sharing…" : "Share this calendar…", openShareModal, "page-menu-share");
+      action("\u{1F517}", "Linked lists…", openCalendarLinksModal, "page-menu-links");
+      const sep = document.createElement("div");
+      sep.className = "page-menu-sep";
+      menu.appendChild(sep);
+    }
+
+    const label = document.createElement("div");
+    label.className = "page-menu-label";
+    label.textContent = "Color on your home screen";
+    menu.appendChild(label);
+    const swatches = document.createElement("div");
+    swatches.className = "page-menu-swatches";
+    PAGE_COLORS.forEach(([color, name]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "page-swatch" + ((page.color || null) === color ? " selected" : "") + (color ? "" : " is-default");
+      if (color) b.style.background = color;
+      b.dataset.color = color || "";
+      b.title = name;
+      b.setAttribute("aria-label", name + ((page.color || null) === color ? " (current)" : ""));
+      b.addEventListener("click", () => { closePageMenu(); store.setPageColor(page.id, color); });
+      swatches.appendChild(b);
+    });
+    menu.appendChild(swatches);
+
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    let left = Math.min(Math.max(8, r.right - mw), window.innerWidth - mw - 8);
+    let top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    pageMenuEl = menu;
+    setTimeout(() => {
+      document.addEventListener("pointerdown", onPageMenuOutside, true);
+      document.addEventListener("keydown", onPageMenuKey, true);
+    }, 0);
+    const first = menu.querySelector("button");
+    if (first) first.focus();
+  }
+
   // --- first-run welcome card (welcome.js) ---
   // Shows on its own only for a brand-new user; "Show the welcome tour
   // again" in Settings forces it back for anyone.
@@ -1838,6 +2047,12 @@ export function initUI(store, ai) {
       icon.className = "mobile-home-card-icon";
       icon.setAttribute("aria-hidden", "true");
       icon.textContent = MOBILE_HOME_PAGE_ICON[p.type] || MOBILE_HOME_PAGE_ICON.tasks;
+      if (p.color) {
+        icon.style.background = p.color;
+        icon.style.color = pickInk(p.color);
+        card.style.setProperty("--page-color", p.color);
+        card.classList.add("has-color");
+      }
       card.appendChild(icon);
 
       const text = document.createElement("span");
@@ -1912,6 +2127,8 @@ export function initUI(store, ai) {
     if (document.activeElement !== pageTitleInput) pageTitleInput.value = page.name || "";
     deletePageBtn.hidden = state.pages.length <= 1;
     sharePageBtn.textContent = page.sharedPageId ? "\u{1F465} Shared" : "Share list";
+    pageColorBtn.querySelector(".page-color-dot").style.background = page.color || "";
+    pageColorBtn.classList.toggle("is-default", !page.color);
     sharePageBtn.classList.toggle("is-shared", !!page.sharedPageId);
     calendarLinksBtn.hidden = !isCalendar;
 
@@ -1992,36 +2209,36 @@ export function initUI(store, ai) {
       // way the theme system picks ink for an accent color.
       head.style.background = sectionColor;
       head.style.setProperty("--ink", pickInk(sectionColor));
-      head.draggable = true;
-      head.addEventListener("dragstart", (e) => {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", JSON.stringify({ kind: "section", sectionId: s.id }));
-        card.classList.add("dragging");
-      });
-      head.addEventListener("dragend", () => card.classList.remove("dragging"));
+      card.dataset.id = s.id;
 
-      const sectionHandle = document.createElement("span");
+      // Same handle as task rows (drag.js): drag the whole section, or
+      // focus the handle and use the arrow keys.
+      const sectionHandle = document.createElement("button");
+      sectionHandle.type = "button";
       sectionHandle.className = "section-handle";
-      sectionHandle.setAttribute("aria-hidden", "true");
       sectionHandle.textContent = "⠿";
-
-      const sectionMoveBtns = buildMoveBtns(
-        "\"" + sectionName + "\"",
-        sIdx > 0,
-        sIdx < sections.length - 1,
-        () => {
-          const ids = sections.map((x) => x.id);
-          ids.splice(sIdx, 1);
-          ids.splice(sIdx - 1, 0, s.id);
+      sectionHandle.setAttribute("aria-label", "Reorder " + labels.noun + " \"" + sectionName + "\" (drag, or use the arrow keys)");
+      const moveSectionTo = (ids) => { pendingFocusSectionId = s.id; store.reorderSections(ids); };
+      makeReorderable(sectionHandle, {
+        item: card,
+        root: sectionsEl.parentElement,
+        zoneSelector: "#sections",
+        itemSelector: "section.section",
+        onDrop: ({ beforeId }) => {
+          const ids = sections.map((x) => x.id).filter((id) => id !== s.id);
+          const at = beforeId ? ids.indexOf(beforeId) : ids.length;
+          ids.splice(at === -1 ? ids.length : at, 0, s.id);
           store.reorderSections(ids);
         },
-        () => {
+        onKey: (dir) => {
+          const to = sIdx + dir;
+          if (to < 0 || to >= sections.length) return;
           const ids = sections.map((x) => x.id);
           ids.splice(sIdx, 1);
-          ids.splice(sIdx + 1, 0, s.id);
-          store.reorderSections(ids);
+          ids.splice(to, 0, s.id);
+          moveSectionTo(ids);
         }
-      );
+      });
 
       const colorInput = document.createElement("input");
       colorInput.type = "color";
@@ -2069,7 +2286,6 @@ export function initUI(store, ai) {
       wireDeleteSection(delBtn, s.id, sectionTasksAll.length, labels);
 
       head.appendChild(sectionHandle);
-      head.appendChild(sectionMoveBtns);
       head.appendChild(collapseBtn);
       head.appendChild(colorInput);
       head.appendChild(name);
@@ -2118,6 +2334,7 @@ export function initUI(store, ai) {
 
       const list = document.createElement("ul");
       list.className = "list";
+      list.dataset.zoneId = s.id; // drop target for dragged tasks (drag.js)
       list.hidden = collapsed;
 
       if (sectionTasks.length === 0) {
@@ -2161,44 +2378,6 @@ export function initUI(store, ai) {
         if (healthEl) healthEl.hidden = next;
       });
 
-      card.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        card.classList.add("drag-over");
-      });
-      card.addEventListener("dragleave", (e) => {
-        if (!card.contains(e.relatedTarget)) card.classList.remove("drag-over");
-      });
-      card.addEventListener("drop", (e) => {
-        e.preventDefault();
-        card.classList.remove("drag-over");
-        const raw = e.dataTransfer.getData("text/plain");
-        if (!raw) return;
-        let payload;
-        try { payload = JSON.parse(raw); } catch (err) { return; }
-        if (!payload) return;
-        if (payload.kind === "task") {
-          // Dropped on the card itself (not on a specific row) — append to
-          // the end of this section. Row-level drops (handled in
-          // buildTaskRow) take care of precise reordering.
-          if (!payload.taskId) return;
-          store.reorderTaskInSection(payload.taskId, s.id, null);
-        } else if (payload.kind === "section") {
-          if (!payload.sectionId || payload.sectionId === s.id) return;
-          const rect = card.getBoundingClientRect();
-          const before = e.clientY < rect.top + rect.height / 2;
-          const ids = sections.map((x) => x.id);
-          const fromIdx = ids.indexOf(payload.sectionId);
-          if (fromIdx === -1) return;
-          ids.splice(fromIdx, 1);
-          let toIdx = ids.indexOf(s.id);
-          if (toIdx === -1) return;
-          if (!before) toIdx += 1;
-          ids.splice(toIdx, 0, payload.sectionId);
-          store.reorderSections(ids);
-        }
-      });
-
       sectionsEl.appendChild(card);
     });
 
@@ -2222,6 +2401,17 @@ export function initUI(store, ai) {
     // not scoped to whichever page/section loop just ran above.
     renderTodayPanel(state);
 
+    if (pendingFocusHandleTaskId) {
+      const h = sectionsEl.querySelector('[data-task-id="' + CSS.escape(pendingFocusHandleTaskId) + '"] .drag-handle');
+      pendingFocusHandleTaskId = null;
+      if (h) h.focus();
+    }
+    if (pendingFocusSectionId) {
+      const h = sectionsEl.querySelector('section.section[data-id="' + CSS.escape(pendingFocusSectionId) + '"] .section-handle');
+      pendingFocusSectionId = null;
+      if (h) h.focus();
+    }
+
     // A global-search result was just opened: scroll its row into view and
     // flash it so it's obvious which one it is.
     if (pendingRevealTaskId) {
@@ -2236,6 +2426,20 @@ export function initUI(store, ai) {
   }
 
   store.subscribe(render);
+
+  // The search bar is position: sticky (styles.css); this only adds the
+  // "is-stuck" shadow once it's actually pinned, so it reads as floating.
+  let stuckFrame = null;
+  window.addEventListener("scroll", () => {
+    if (stuckFrame) return;
+    stuckFrame = requestAnimationFrame(() => {
+      stuckFrame = null;
+      if (listSearchWrap.hidden) return;
+      const top = listSearchWrap.getBoundingClientRect().top;
+      const pinnedAt = parseFloat(getComputedStyle(listSearchWrap).top) || 0;
+      listSearchWrap.classList.toggle("is-stuck", window.scrollY > 0 && top <= pinnedAt + 1);
+    });
+  }, { passive: true });
 
   // --- list search: live filter as you type, smart Enter to add/check/uncheck ---
   listSearchInput.addEventListener("input", () => {
@@ -2485,6 +2689,10 @@ export function initUI(store, ai) {
   function closeShareModal() { shareOverlay.hidden = true; }
 
   sharePageBtn.addEventListener("click", openShareModal);
+  pageColorBtn.addEventListener("click", () => {
+    const page = activePage(store.getState());
+    if (page) openPageMenu(pageColorBtn, page);
+  });
   shareClose.addEventListener("click", closeShareModal);
   shareDoneBtn.addEventListener("click", closeShareModal);
   shareOverlay.addEventListener("click", (e) => { if (e.target === shareOverlay) closeShareModal(); });
@@ -2535,14 +2743,27 @@ export function initUI(store, ai) {
     calendarAddEventCustomDays.hidden = calendarAddEventRecur.value !== "custom";
   });
 
-  function openCalendarAddEvent(pageId, dateStr) {
+  // One modal for both adding and editing an event. Pass `existing` (the
+  // real task — for a repeating event that's the series' anchor row) to
+  // edit it; leave it off to add a new event on `dateStr`.
+  function openCalendarAddEvent(pageId, dateStr, existing) {
     calendarAddEventPageId = pageId;
-    calendarAddEventDate.value = dateStr;
-    calendarAddEventText.value = "";
-    calendarAddEventTime.value = "";
-    calendarAddEventRecur.value = "none";
-    calendarAddEventCustomDays.hidden = true;
-    calendarAddEventCustomDays.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
+    calendarEditTaskId = existing ? existing.id : null;
+    const t = existing || {};
+    calendarAddEventTitle.textContent = existing ? "Edit event" : "Add event";
+    calendarAddEventSubmit.textContent = existing ? "Save" : "Add event";
+    calendarAddEventDelete.hidden = !existing;
+    calendarAddEventDate.value = existing ? (t.dueDate || dateStr) : dateStr;
+    calendarAddEventText.value = t.text || "";
+    calendarAddEventTime.value = t.eventTime || "";
+    const recurVal = recurrenceValue(t.recurrence || null);
+    calendarAddEventRecur.value = recurVal;
+    calendarAddEventCustomDays.hidden = recurVal !== "custom";
+    const days = (t.recurrence && t.recurrence.unit === "custom" && Array.isArray(t.recurrence.days)) ? t.recurrence.days : [];
+    calendarAddEventCustomDays.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => { cb.checked = days.includes(i); });
+    calendarAddEventRemind.value = t.remindBefore == null ? "" : String(t.remindBefore);
+    if (calendarAddEventRemind.selectedIndex < 0) calendarAddEventRemind.value = "";
+    calendarAddEventNote.value = t.note || "";
     calendarAddEventOverlay.hidden = false;
     calendarAddEventText.focus();
   }
@@ -2550,6 +2771,7 @@ export function initUI(store, ai) {
   function closeCalendarAddEvent() {
     calendarAddEventOverlay.hidden = true;
     calendarAddEventPageId = null;
+    calendarEditTaskId = null;
   }
 
   function submitCalendarAddEvent() {
@@ -2558,9 +2780,6 @@ export function initUI(store, ai) {
     if (!text) { calendarAddEventText.focus(); return; }
     if (!dateVal || !calendarAddEventPageId) { closeCalendarAddEvent(); return; }
     const state = store.getState();
-    const sections = state.sections.filter((s) => s.pageId === calendarAddEventPageId).slice().sort((a, b) => a.order - b.order);
-    const section = sections[0];
-    if (!section) { closeCalendarAddEvent(); return; }
     let recurrence;
     if (calendarAddEventRecur.value === "custom") {
       const chosenDays = Array.from(calendarAddEventCustomDays.querySelectorAll('input[type="checkbox"]'))
@@ -2570,14 +2789,38 @@ export function initUI(store, ai) {
     } else {
       recurrence = recurrenceFromValue(calendarAddEventRecur.value);
     }
-    const task = store.addTask(section.id, text);
-    store.updateTask(task.id, { dueDate: dateVal, eventTime: calendarAddEventTime.value || null, recurrence });
-    calendarSelectedDate = dateVal;
+    const remindRaw = calendarAddEventRemind.value;
+    if (remindRaw !== "" && remindRaw !== "-1") ensureNotificationPermission();
+    const fields = {
+      dueDate: dateVal,
+      eventTime: calendarAddEventTime.value || null,
+      recurrence,
+      note: calendarAddEventNote.value.trim() || null,
+      remindBefore: remindRaw === "" ? null : Number(remindRaw)
+    };
+    const editing = calendarEditTaskId && state.tasks.find((t) => t.id === calendarEditTaskId);
+    if (editing) {
+      store.updateTask(editing.id, Object.assign({ text }, fields));
+    } else {
+      const sections = state.sections.filter((s) => s.pageId === calendarAddEventPageId).slice().sort((a, b) => a.order - b.order);
+      const section = sections[0];
+      if (!section) { closeCalendarAddEvent(); return; }
+      const task = store.addTask(section.id, text);
+      store.updateTask(task.id, fields);
+      // Only a NEW event moves the selected day to where it landed —
+      // editing (say) a repeating series shouldn't yank "+ Event" back
+      // to the date that series started months ago.
+      calendarSelectedDate = dateVal;
+    }
     closeCalendarAddEvent();
     render(store.getState());
   }
 
   calendarAddEventSubmit.addEventListener("click", submitCalendarAddEvent);
+  calendarAddEventDelete.addEventListener("click", () => {
+    if (calendarEditTaskId) store.deleteTask(calendarEditTaskId);
+    closeCalendarAddEvent();
+  });
   calendarAddEventText.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); submitCalendarAddEvent(); }
   });

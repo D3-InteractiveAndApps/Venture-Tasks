@@ -114,6 +114,7 @@
       <div class="page-title-row">
         <h1 class="page-title-wrap"><input id="page-title" type="text" class="page-title" maxlength="60" aria-label="Page title" /></h1>
         <div class="page-head-actions">
+          <button id="page-color-btn" type="button" class="page-color-btn" aria-haspopup="true" aria-label="Color for this list" title="Color for this list"><span class="page-color-dot"></span></button>
           <button id="share-page-btn" type="button" class="secondary-btn share-page-btn">Share list</button>
           <button id="calendar-links-btn" type="button" class="secondary-btn" hidden>Linked lists</button>
           <button id="delete-page-btn" type="button" class="section-del page-del" hidden>Delete page</button>
@@ -571,8 +572,26 @@
         <select id="calendar-add-event-recur"></select>
       </label>
       <div class="calendar-quickadd-custom-days" id="calendar-add-event-custom-days" hidden></div>
+      <label class="field">
+        <span class="field-label">Remind me</span>
+        <select id="calendar-add-event-remind">
+          <option value="">Default (from Settings &rarr; Reminders)</option>
+          <option value="-1">No reminder</option>
+          <option value="0">At the start time</option>
+          <option value="10">10 minutes before</option>
+          <option value="30">30 minutes before</option>
+          <option value="60">1 hour before</option>
+          <option value="1440">1 day before</option>
+        </select>
+        <span class="field-hint" id="calendar-add-event-remind-hint">All-day events remind at 9:00&nbsp;AM.</span>
+      </label>
+      <label class="field">
+        <span class="field-label">Notes (optional)</span>
+        <textarea id="calendar-add-event-note" rows="3" maxlength="2000" placeholder="Address, what to bring, who&rsquo;s driving&hellip;"></textarea>
+      </label>
     </div>
     <div class="modal-foot">
+      <button id="calendar-add-event-delete" type="button" class="secondary-btn danger-btn" hidden>Delete</button>
       <button id="calendar-add-event-submit" type="button" class="primary-btn">Add event</button>
     </div>
   </div>

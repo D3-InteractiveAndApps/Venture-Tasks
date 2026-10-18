@@ -30,6 +30,20 @@
 
 import { advanceDate, todayStr } from "./dates.js";
 
+// Moves a "YYYY-MM-DDTHH:MM" reminder by however many days a recurring
+// task's due date moved (fromDue → toDue). No due date → nothing to
+// anchor it to, so the reminder isn't carried over.
+export function shiftRemindAt(remindAt, fromDue, toDue) {
+  if (!remindAt || !fromDue || !toDue) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(remindAt);
+  if (!m) return null;
+  const dayMs = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+  const delta = Math.round((dayMs(toDue) - dayMs(fromDue)) / 86400000);
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + delta));
+  const pad = (n) => String(n).padStart(2, "0");
+  return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) + "T" + m[4];
+}
+
 const DATA_KEY = "ventureTasks:data:v1";
 const SETTINGS_KEY = "ventureTasks:settings:v1";
 const UNDO_LIMIT = 50;
@@ -358,6 +372,17 @@ export const store = {
     persist();
   },
 
+  // A page's own color (home-screen card + sidebar), or null for the
+  // theme's accent. Personal: on a shared list it isn't pushed to the
+  // other members — everyone colors their own home screen.
+  setPageColor(id, color) {
+    const p = findPage(id);
+    if (!p) return;
+    pushUndo();
+    p.color = color || null;
+    persist();
+  },
+
   deletePage(id) {
     if (state.pages.length <= 1) return false; // always keep at least one page
     pushUndo();
@@ -477,6 +502,8 @@ export const store = {
       isDaily: false,
       client: null,
       value: null,
+      note: null,
+      remindAt: null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
       completedAt: null
@@ -598,6 +625,7 @@ export const store = {
     const ownerPage = findPage(t.pageId);
     const isCalendarEvent = ownerPage && ownerPage.type === "calendar";
     if (next && t.recurrence && !t.isDaily && !isCalendarEvent) {
+      const nextDue = advanceDate(t.dueDate, t.recurrence);
       state.tasks.push({
         id: uid(),
         text: t.text,
@@ -606,10 +634,14 @@ export const store = {
         pageId: t.pageId,
         order: Date.now(),
         color: t.color || null,
-        dueDate: advanceDate(t.dueDate, t.recurrence),
+        dueDate: nextDue,
         eventTime: t.eventTime || null,
         recurrence: t.recurrence,
         isSomeday: !!t.isSomeday,
+        note: t.note || null,
+        // A "remind me" time rides along with the due date: if this one
+        // reminded the evening before it was due, so does the next one.
+        remindAt: shiftRemindAt(t.remindAt, t.dueDate, nextDue),
         client: t.client || null,
         value: t.value || null,
         createdAt: nowIso(),
@@ -730,7 +762,9 @@ export const store = {
   upsertRemoteTask(task) {
     const i = state.tasks.findIndex((t) => t.id === task.id);
     if (i === -1) state.tasks.push(task);
-    else state.tasks[i] = task;
+    // A change from another member replaces the shared fields, but never
+    // your personal ones (a "remind me" time is yours alone, not the list's).
+    else state.tasks[i] = Object.assign({}, task, { remindAt: state.tasks[i].remindAt || null, remindBefore: state.tasks[i].remindBefore == null ? null : state.tasks[i].remindBefore });
     persist();
   },
 

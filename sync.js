@@ -236,9 +236,48 @@ export function taskToRow(task, sharedPageId) {
     is_someday: !!task.isSomeday,
     client: task.client || null,
     value: task.value == null ? null : task.value,
+    note: task.note || null,
+    is_daily: !!task.isDaily,
     updated_at: task.updatedAt || new Date().toISOString(),
     completed_at: task.completedAt || null
   };
+}
+
+// Columns added in v9-schema.sql. If the app update is live before that
+// SQL has been run, the server rejects rows mentioning them — so on that
+// specific error, drop them and retry (notes / the daily flag just won't
+// sync to other members until the SQL is in), rather than breaking every
+// edit to a shared list.
+const V9_TASK_COLUMNS = ["note", "is_daily"];
+let serverHasV9Columns = true;
+function isMissingV9ColumnError(err) {
+  const msg = (err && (err.message || err.details || "")) + "";
+  return V9_TASK_COLUMNS.some((c) => msg.includes("'" + c + "'") || msg.includes('"' + c + '"') || msg.includes(" " + c + " "));
+}
+function withoutV9Columns(rows) {
+  return rows.map((r) => { const copy = Object.assign({}, r); V9_TASK_COLUMNS.forEach((c) => delete copy[c]); return copy; });
+}
+async function writeSharedTasks(method, rows) {
+  const payload = serverHasV9Columns ? rows : withoutV9Columns(rows);
+  let res = await client.from("shared_tasks")[method](payload);
+  if (res.error && serverHasV9Columns && isMissingV9ColumnError(res.error)) {
+    serverHasV9Columns = false;
+    res = await client.from("shared_tasks")[method](withoutV9Columns(rows));
+  }
+  return res;
+}
+
+// recurrence is an object in the app but a text column on the server, so
+// it comes back as a JSON string — parse it back (anything unreadable is
+// treated as "doesn't repeat" rather than breaking the calendar).
+function parseRecurrence(r) {
+  if (!r) return null;
+  if (typeof r === "object") return r;
+  try { const o = JSON.parse(r); return o && typeof o === "object" && o.unit ? o : null; } catch (e) { return null; }
+}
+function recurrenceKey(r) {
+  const o = parseRecurrence(r);
+  return o ? JSON.stringify({ unit: o.unit, interval: o.interval || null, days: Array.isArray(o.days) ? o.days.slice().sort() : null }) : null;
 }
 
 export function rowToTask(row, pageId) {
@@ -252,10 +291,12 @@ export function rowToTask(row, pageId) {
     color: row.color || null,
     dueDate: row.due_date || null,
     eventTime: row.event_time || null,
-    recurrence: row.recurrence || null,
+    recurrence: parseRecurrence(row.recurrence),
     isSomeday: !!row.is_someday,
     client: row.client || null,
     value: row.value == null ? null : row.value,
+    note: row.note || null,
+    isDaily: !!row.is_daily,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at || null
@@ -276,7 +317,8 @@ export function tasksEqual(a, b) {
   return a.text === b.text && !!a.done === !!b.done && (a.order || 0) === (b.order || 0)
     && (a.color || null) === (b.color || null) && (a.dueDate || null) === (b.dueDate || null)
     && (a.eventTime || null) === (b.eventTime || null)
-    && (a.recurrence || null) === (b.recurrence || null) && !!a.isSomeday === !!b.isSomeday
+    && recurrenceKey(a.recurrence) === recurrenceKey(b.recurrence) && !!a.isSomeday === !!b.isSomeday
+    && (a.note || null) === (b.note || null) && !!a.isDaily === !!b.isDaily
     && (a.client || null) === (b.client || null) && (a.value == null ? null : a.value) === (b.value == null ? null : b.value)
     && a.sectionId === b.sectionId;
 }
@@ -323,7 +365,7 @@ async function diffAndPushSharedRows(nextState) {
 
   try {
     if (sectionUpserts.length) await client.from("shared_sections").upsert(sectionUpserts);
-    if (taskUpserts.length) await client.from("shared_tasks").upsert(taskUpserts);
+    if (taskUpserts.length) { const { error } = await writeSharedTasks("upsert", taskUpserts); if (error) throw error; }
     if (sectionDeleteIds.length) await client.from("shared_sections").delete().in("id", sectionDeleteIds);
     if (taskDeleteIds.length) await client.from("shared_tasks").delete().in("id", taskDeleteIds);
   } catch (e) {
@@ -432,7 +474,7 @@ export async function createSharedList(pageId) {
     if (error) throw new Error(describeError(error));
   }
   if (tasks.length) {
-    const { error } = await supabase.from("shared_tasks").insert(tasks.map((t) => taskToRow(t, sharedPage.id)));
+    const { error } = await writeSharedTasks("insert", tasks.map((t) => taskToRow(t, sharedPage.id)));
     if (error) throw new Error(describeError(error));
   }
 
@@ -790,10 +832,63 @@ export async function signIn(email, password) {
   if (error) throw new Error(error.message);
 }
 
+// Things to tidy up while still signed in (e.g. push.js removing this
+// device's push registration) — run just before signing out.
+const signOutHooks = new Set();
+export function onBeforeSignOut(fn) { signOutHooks.add(fn); return () => signOutHooks.delete(fn); }
+async function runSignOutHooks() {
+  for (const fn of signOutHooks) {
+    try { await fn(); } catch (e) { console.warn("sign-out cleanup:", e); }
+  }
+}
+
 export async function signOut() {
   const supabase = await ensureClient();
   if (!supabase) return;
+  await runSignOutHooks();
   await supabase.auth.signOut();
+}
+
+// ---- push reminders (see push.js and supabase/functions/push-reminders) ----
+
+export async function savePushSubscription(endpoint, p256dh, auth, timeZone, prefs) {
+  const supabase = await ensureClient();
+  if (!supabase || !session) throw new Error("Sign in first (Settings → Account & sync).");
+  const { error } = await supabase.rpc("save_push_subscription", {
+    p_endpoint: endpoint, p_p256dh: p256dh, p_auth: auth,
+    p_time_zone: timeZone || "UTC", p_prefs: prefs || {},
+    p_user_agent: (navigator.userAgent || "").slice(0, 300)
+  });
+  if (error) throw new Error(describePushError(error));
+}
+
+export async function deletePushSubscription(endpoint) {
+  const supabase = await ensureClient();
+  if (!supabase || !session || !endpoint) return;
+  const { error } = await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
+  if (error) throw new Error(describePushError(error));
+}
+
+export async function callPushFunction(body) {
+  const supabase = await ensureClient();
+  if (!supabase) throw new Error("Cloud sync isn't set up on this copy of the app.");
+  const { data, error } = await supabase.functions.invoke("push-reminders", { body });
+  if (error) {
+    let detail = "";
+    try { const j = await error.context.json(); detail = j && j.error; } catch (e) { /* not JSON */ }
+    const status = error.context && error.context.status;
+    if (status === 404 && !detail) throw new Error("The push-reminders server piece isn't deployed yet (see the README's push setup).");
+    throw new Error(detail || error.message || "The push server didn't answer.");
+  }
+  return data || {};
+}
+
+function describePushError(error) {
+  const msg = (error && error.message) || String(error);
+  if (/save_push_subscription|push_subscriptions/.test(msg) && /(does not exist|not find|schema cache)/i.test(msg)) {
+    return "Push isn't set up on the server yet — run v9-upgrade.sql (see the README's push setup).";
+  }
+  return msg;
 }
 
 // Permanently deletes this account and everything tied to it — see
@@ -807,6 +902,7 @@ export async function signOut() {
 export async function deleteMyAccount() {
   const supabase = await ensureClient();
   if (!supabase || !session) throw new Error("Sign in first — there's no account to delete.");
+  await runSignOutHooks();
   const { error } = await supabase.rpc("delete_my_account");
   if (error) throw new Error(describeError(error));
   await supabase.auth.signOut();
