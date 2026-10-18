@@ -75,13 +75,34 @@ alter table shared_page_members enable row level security;
 alter table shared_sections enable row level security;
 alter table shared_tasks enable row level security;
 
+-- Membership check used by every policy below. It runs with the table
+-- owner's rights (security definer), so it isn't itself subject to these
+-- policies — a policy on shared_page_members that queried
+-- shared_page_members directly would re-trigger itself forever ("infinite
+-- recursion detected in policy"). It only ever answers for the signed-in
+-- user (auth.uid()), so it can't be used to probe anyone else's access.
+create or replace function public.is_shared_page_member(page_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.shared_page_members
+    where shared_page_id = page_id and user_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_shared_page_member(uuid) from public;
+grant execute on function public.is_shared_page_member(uuid) to authenticated;
+
 -- --- shared_pages ---
+-- The owner can always read their own page (the app reads it straight
+-- back right after creating it, before adding itself as a member).
 create policy "Members can read a shared page"
   on shared_pages for select
-  using (exists (
-    select 1 from shared_page_members m
-    where m.shared_page_id = shared_pages.id and m.user_id = auth.uid()
-  ));
+  using (owner_user_id = auth.uid() or public.is_shared_page_member(id));
 
 create policy "A user can create a shared page they own"
   on shared_pages for insert
@@ -98,10 +119,7 @@ create policy "Owner can stop sharing (delete) their shared page"
 -- --- shared_page_members ---
 create policy "Members can see who else is on a shared page"
   on shared_page_members for select
-  using (exists (
-    select 1 from shared_page_members m2
-    where m2.shared_page_id = shared_page_members.shared_page_id and m2.user_id = auth.uid()
-  ));
+  using (user_id = auth.uid() or public.is_shared_page_member(shared_page_id));
 
 -- The owner adding themself as the first member happens directly from the
 -- client (there's no invite code yet at creation time). Anyone else joins
@@ -122,25 +140,13 @@ create policy "A member can leave a shared page on their own"
 -- --- shared_sections / shared_tasks: any member can read and write ---
 create policy "Members can manage sections"
   on shared_sections for all
-  using (exists (
-    select 1 from shared_page_members m
-    where m.shared_page_id = shared_sections.shared_page_id and m.user_id = auth.uid()
-  ))
-  with check (exists (
-    select 1 from shared_page_members m
-    where m.shared_page_id = shared_sections.shared_page_id and m.user_id = auth.uid()
-  ));
+  using (public.is_shared_page_member(shared_page_id))
+  with check (public.is_shared_page_member(shared_page_id));
 
 create policy "Members can manage tasks"
   on shared_tasks for all
-  using (exists (
-    select 1 from shared_page_members m
-    where m.shared_page_id = shared_tasks.shared_page_id and m.user_id = auth.uid()
-  ))
-  with check (exists (
-    select 1 from shared_page_members m
-    where m.shared_page_id = shared_tasks.shared_page_id and m.user_id = auth.uid()
-  ));
+  using (public.is_shared_page_member(shared_page_id))
+  with check (public.is_shared_page_member(shared_page_id));
 
 -- Joining a shared list by invite code. Runs as the function owner
 -- (security definer), not the calling user, so it can look up a page by
