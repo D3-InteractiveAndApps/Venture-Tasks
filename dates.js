@@ -12,6 +12,17 @@ export function todayStr() {
   return fmtDate(new Date());
 }
 
+// The LOCAL calendar date ("YYYY-MM-DD") of a stored timestamp. Timestamps
+// like completedAt are saved in UTC (toISOString), so just taking the first
+// 10 characters gives the UTC date. In Michigan, that's already
+// "tomorrow" from 8 PM on, which is how a daily task checked off in the
+// evening used to stay checked all the next day.
+export function localDateOf(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? String(iso).slice(0, 10) : fmtDate(d);
+}
+
 export function daysUntil(dueStr) {
   if (!dueStr) return null;
   const a = new Date(todayStr() + "T00:00:00");

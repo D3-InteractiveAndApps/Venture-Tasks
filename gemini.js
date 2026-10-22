@@ -1,13 +1,15 @@
 // Direct browser call to Google's Gemini API using the user's own key.
-// The key travels as a query parameter, per Gemini's documented REST usage.
+// The key travels in the x-goog-api-key header (Gemini's documented REST auth).
 export async function ask(apiKey, model, prompt, opts) {
   const url = "https://generativelanguage.googleapis.com/v1beta/models/"
-    + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(apiKey);
+    + encodeURIComponent(model) + ":generateContent";
 
   const res = await fetch(url, {
     method: "POST",
     signal: opts && opts.signal,
-    headers: { "content-type": "application/json" },
+    // In a header rather than the URL, so the key never sits in a URL
+    // (browser history, logs, error messages).
+    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
   });
 

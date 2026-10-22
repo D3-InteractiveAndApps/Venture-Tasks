@@ -7,11 +7,12 @@
 // when the work was delivered/billable), otherwise its due date, otherwise
 // when it was created.
 
-import { fmtDate } from "./dates.js";
+import { fmtDate, localDateOf } from "./dates.js";
 
 export const NO_CLIENT = "__none__";
 
-function dateOnly(iso) { return iso ? String(iso).slice(0, 10) : ""; }
+// The local calendar date, so work finished at 9 PM counts for that day, not the next.
+function dateOnly(iso) { return localDateOf(iso) || ""; }
 
 export function reportDate(t) {
   if (t.done && t.completedAt) return dateOnly(t.completedAt);

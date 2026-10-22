@@ -28,7 +28,7 @@
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
-import { advanceDate, todayStr } from "./dates.js";
+import { advanceDate, todayStr, localDateOf } from "./dates.js";
 
 // Moves a "YYYY-MM-DDTHH:MM" reminder by however many days a recurring
 // task's due date moved (fromDue → toDue). No due date → nothing to
@@ -167,8 +167,9 @@ function normalizeState(raw) {
   return { pages, sections, tasks, trash };
 }
 
+// Local date, not the UTC one — see localDateOf in dates.js.
 function dateOnly(iso) {
-  return iso ? iso.slice(0, 10) : null;
+  return localDateOf(iso);
 }
 
 // A daily task (isDaily: true) that's still marked done from a PREVIOUS
@@ -237,6 +238,10 @@ function applyIncomingData(incoming) {
     throw new Error("That doesn't look like Venture Tasks data.");
   }
   state = normalizeState(incoming);
+  // Data coming from another device or a backup can still have a daily
+  // task checked from an earlier day; catch it up right away instead of
+  // waiting for the next once-a-minute check.
+  resetDailyTasks();
   persist();
 }
 
@@ -764,7 +769,19 @@ export const store = {
     if (i === -1) state.tasks.push(task);
     // A change from another member replaces the shared fields, but never
     // your personal ones (a "remind me" time is yours alone, not the list's).
-    else state.tasks[i] = Object.assign({}, task, { remindAt: state.tasks[i].remindAt || null, remindBefore: state.tasks[i].remindBefore == null ? null : state.tasks[i].remindBefore });
+    else {
+      const local = state.tasks[i];
+      const merged = Object.assign({}, local);
+      // Fields the server didn't send (undefined) keep this device's value
+      // instead of being wiped, e.g. "Daily task" on a project whose
+      // shared_tasks table predates the is_daily column.
+      Object.keys(task).forEach((k) => { if (task[k] !== undefined) merged[k] = task[k]; });
+      merged.remindAt = local.remindAt || null;
+      merged.remindBefore = local.remindBefore == null ? null : local.remindBefore;
+      state.tasks[i] = merged;
+    }
+    // A daily task arriving still checked from an earlier day resets now.
+    resetDailyTasks();
     persist();
   },
 

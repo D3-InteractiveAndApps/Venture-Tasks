@@ -295,8 +295,12 @@ export function rowToTask(row, pageId) {
     isSomeday: !!row.is_someday,
     client: row.client || null,
     value: row.value == null ? null : row.value,
-    note: row.note || null,
-    isDaily: !!row.is_daily,
+    // A project that hasn't run v9-upgrade.sql yet has no note/is_daily
+    // columns. Leave those undefined (not "no note / not daily") so an
+    // incoming row can't wipe them off this device's copy; see
+    // upsertRemoteTask in store.js.
+    note: "note" in row ? (row.note || null) : undefined,
+    isDaily: "is_daily" in row ? !!row.is_daily : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at || null
@@ -318,7 +322,8 @@ export function tasksEqual(a, b) {
     && (a.color || null) === (b.color || null) && (a.dueDate || null) === (b.dueDate || null)
     && (a.eventTime || null) === (b.eventTime || null)
     && recurrenceKey(a.recurrence) === recurrenceKey(b.recurrence) && !!a.isSomeday === !!b.isSomeday
-    && (a.note || null) === (b.note || null) && !!a.isDaily === !!b.isDaily
+    && (a.note === undefined || b.note === undefined || (a.note || null) === (b.note || null))
+    && (a.isDaily === undefined || b.isDaily === undefined || !!a.isDaily === !!b.isDaily)
     && (a.client || null) === (b.client || null) && (a.value == null ? null : a.value) === (b.value == null ? null : b.value)
     && a.sectionId === b.sectionId;
 }
@@ -435,10 +440,15 @@ function resubscribeAllSharedPages() {
 
 function randomInviteCode() {
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L — easy to read aloud
-  const bytes = new Uint8Array(6);
-  (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(bytes) : bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+  // 8 characters from 31 = about 850 billion possible codes (older lists
+  // keep their 6-character ones, which still work). Rejection sampling keeps
+  // every character equally likely.
   let code = "";
-  for (let i = 0; i < bytes.length; i++) code += alphabet[bytes[i] % alphabet.length];
+  const bytes = new Uint8Array(1);
+  while (code.length < 8) {
+    window.crypto.getRandomValues(bytes);
+    if (bytes[0] < 248) code += alphabet[bytes[0] % alphabet.length]; // 248 = 8 × 31
+  }
   return code;
 }
 
@@ -519,6 +529,9 @@ export async function joinSharedList(code) {
 
   const { data: sharedPage, error } = await supabase.rpc("redeem_share_code", { code: trimmed });
   if (error) throw new Error(describeError(error));
+  // security-hardening.sql answers a wrong code with an empty result
+  // (so the attempt can be counted toward the hourly limit).
+  if (!sharedPage || !sharedPage.id) throw new Error("That invite code doesn't match any shared list.");
 
   return adoptSharedPage(sharedPage, "editor");
 }

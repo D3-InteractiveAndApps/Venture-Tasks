@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- Content Security Policy: this page may only run its own scripts (plus the
+     Supabase library from jsDelivr) and only talk to Supabase and the three AI
+     providers. If a malicious script ever got in, it couldn't load more code or
+     send your data anywhere else. If you move Supabase to a custom domain, add
+     it to connect-src. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Venture Tasks</title>
 <meta name="description" content="A to-do list for people running several small businesses at once.">
@@ -232,7 +238,7 @@
           <p class="settings-help">Got an invite code for someone else's shared list? Enter it here &mdash; it'll show up as a new page, live-synced with everyone else on it.</p>
           <label class="field">
             <span class="field-label">Invite code</span>
-            <input id="join-share-code" type="text" maxlength="6" autocomplete="off" placeholder="e.g. 7FQT2K" style="text-transform: uppercase;" />
+            <input id="join-share-code" type="text" maxlength="8" autocomplete="off" placeholder="e.g. 7FQT2KXM" style="text-transform: uppercase;" />
           </label>
           <div class="settings-actions">
             <button id="join-share-btn" type="button" class="secondary-btn">Join shared list</button>

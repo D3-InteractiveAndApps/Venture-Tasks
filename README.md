@@ -266,7 +266,7 @@ Worth being clear about since it trips people up: this live link is a read-only 
 
 ## Sharing a list with someone else
 
-Next to any page's title, **Share list** turns that page into a shared list: click **Generate invite code**, send the 6-character code to whoever you want on it (text, email, however), and once they enter it under Settings → Account & sync → **Join shared list**, that page shows up for them too — pointed at the exact same sections and tasks, not a copy. From then on, edits either of you make (checking something off, adding an item, changing a due date) show up for the other within a second or two, the same way your own two devices stay in sync today. A shared page gets a small &#128101; icon on its tab so it's easy to tell apart from a personal one.
+Next to any page's title, **Share list** turns that page into a shared list: click **Generate invite code**, send the 8-character code (lists shared before October 2026 keep their 6-character one) to whoever you want on it (text, email, however), and once they enter it under Settings → Account & sync → **Join shared list**, that page shows up for them too — pointed at the exact same sections and tasks, not a copy. From then on, edits either of you make (checking something off, adding an item, changing a due date) show up for the other within a second or two, the same way your own two devices stay in sync today. A shared page gets a small &#128101; icon on its tab so it's easy to tell apart from a personal one.
 
 A few things worth knowing:
 
@@ -307,6 +307,7 @@ These three features need a couple of new database tables and one small Edge Fun
 1. **Run the extra SQL, in this order.** In the SQL Editor, run everything in `shared-lists-schema.sql` (shared lists) first, then `live-calendar-schema.sql` (the live calendar), then `family-calendar-schema.sql` (the Family Calendar's calendar-type pages, linked-lists, and event times — it builds on top of the shared-lists tables, so it has to go last). All three files are in this folder, with comments explaining each piece — none of them touches the `app_state` table or its policy from the main setup below.
 
    **If your project was set up before October 2026, also run `shared-lists-fix.sql` once.** The original `shared-lists-schema.sql` had a row-level security rule that checked list membership by querying the very table it protected, so sharing failed with *"infinite recursion detected in policy for relation shared_page_members"* the moment you tapped **Generate invite code**. The fix swaps those rules for a small `is_shared_page_member()` helper and lets a list's owner read their own list right after creating it. It's safe to run more than once and doesn't touch any data. `shared-lists-schema.sql` itself is now corrected, so a fresh setup doesn't need the fix file. Both were tested against a local Postgres set up to behave like Supabase: the original error reproduces, and with the fix applied the full flow works (create, join by code, see members, edit, leave, stop sharing, calendar cross-sharing, account deletion), while people who weren't invited still can't see or touch anything.
+   **Then, last, run `security-hardening.sql`** (after `v9-upgrade.sql`, if you use push). It limits invite-code guessing and closes server functions to signed-out visitors. See "Security model" below. It's safe to run again any time.
 2. **Deploy the Edge Function.** This one piece needs the [Supabase CLI](https://supabase.com/docs/guides/cli) (`npm install -g supabase`, then `supabase login`). From this project's folder:
 
    ```bash
@@ -332,6 +333,24 @@ To check it: sign in on your phone (installed to the Home Screen on iPhone), tur
 If test pushes work but scheduled reminders don't arrive, look at what the every-minute call is getting back: `select status_code, content from net._http_response order by created desc limit 5;`. A **401** that mentions JWT means JWT verification is still on for the function (step 2). A **404** means the URL in `push-cron.sql` doesn't match your project ref or the function name.
 
 Changed `reminder-engine.js`, `today.js` or `dates.js`? Run `node supabase/build-push-function.mjs` to copy them into the function file, then redeploy the function. That keeps the server deciding "what's due" exactly the way the app does.
+
+## Security model (what's public, what isn't)
+
+Venture Tasks is a static site: anyone can read every file it ships, so **nothing secret is in those files**. This is how it's set up:
+
+- **`supabase-config.js` holds only the project URL and the *publishable* (anon) key.** Supabase designs that key to be public, and every Supabase web app ships one. On its own it can't read anyone's data. What protects the data is row-level security in the database: every table has rules, so a signed-in account only sees its own synced data, and shared lists only show to their members. The privileged *secret* key never appears in the app. Supabase gives it to the two Edge Functions on the server, and it stays there. **Never paste a `service_role` or `sb_secret_` key into `supabase-config.js`.** That key bypasses every rule.
+- **What a visitor can do with the public key:** sign up, and then read and write their own rows. Signed out, they can't read any table or call any server function (`security-hardening.sql`).
+- **Shared lists:** joining needs an account and the invite code. Each account gets 10 wrong codes per hour, so codes can't be guessed by brute force. New codes are 8 characters.
+- **Live calendar links and push** use long random tokens and server-side checks. The once-a-minute push job needs a secret stored in the database.
+- **AI keys** you add are stored only in that browser and sent straight to the AI provider (Gemini's in a header, not the URL). They're never uploaded to Supabase.
+- **In the browser:** user text (task names, notes, shared lists from other people) is always inserted as plain text, never as HTML. A Content Security Policy in `index.html` also means that, if a malicious script ever got in, it couldn't load more code or send data anywhere except Supabase and the three AI providers. If you move Supabase to a custom domain, add that domain to the policy's `connect-src`.
+
+**Worth checking in the Supabase dashboard now and then:**
+- **Advisors → Security Advisor** should show no "RLS disabled" errors.
+- Under **Authentication**:
+  - Keep **Confirm email** on.
+  - Turn on leaked-password protection if your plan offers it.
+  - Keep the default rate limits.
 
 ## Syncing across devices
 
@@ -441,6 +460,7 @@ live-calendar-schema.sql      SQL to run once for the live calendar (the token t
 family-calendar-schema.sql    SQL to run once for the Family Calendar (calendar-type pages, linked-lists, event times, and the cross-share functions) — run after the two above
 account-deletion-schema.sql   SQL to run once for the "Delete my account and data" button (one function that deletes the auth.users row; everything else cascades)
 v9-upgrade.sql                SQL to run once for notes on shared lists + the push-reminder tables
+security-hardening.sql        SQL to run once, after the others: invite-code guessing limit, no signed-out access to server functions
 push-cron.sql                 SQL to run once, last, to call the push function every minute (fill in your project ref)
 supabase/functions/ics-feed/index.ts         Edge Function that serves a live .ics feed by token
 supabase/functions/push-reminders/index.ts   Edge Function that sends push reminders (one self-contained file, paste-able into the dashboard)
