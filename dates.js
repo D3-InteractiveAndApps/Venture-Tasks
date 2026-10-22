@@ -17,6 +17,28 @@ export function todayStr() {
 // 10 characters gives the UTC date. In Michigan, that's already
 // "tomorrow" from 8 PM on, which is how a daily task checked off in the
 // evening used to stay checked all the next day.
+// Daily tasks uncheck themselves at 12:01 AM local time. A "daily day" runs
+// from 12:01 AM to 12:00 AM the next night, so a check-off at 11:59 PM or at
+// 12:00:30 AM both count for the day that's ending.
+export const DAILY_RESET_HOUR = 0;
+export const DAILY_RESET_MINUTE = 1;
+
+export function dailyDayOf(when) {
+  const d = when instanceof Date ? new Date(when.getTime()) : new Date(when);
+  if (isNaN(d.getTime())) return null;
+  d.setMinutes(d.getMinutes() - (DAILY_RESET_HOUR * 60 + DAILY_RESET_MINUTE));
+  return fmtDate(d);
+}
+
+// Milliseconds from `now` until the next 12:01 AM local time.
+export function msUntilNextDailyReset(now) {
+  const n = now || new Date();
+  const next = new Date(n.getTime());
+  next.setHours(DAILY_RESET_HOUR, DAILY_RESET_MINUTE, 0, 0);
+  if (next <= n) next.setDate(next.getDate() + 1);
+  return next - n;
+}
+
 export function localDateOf(iso) {
   if (!iso) return null;
   const d = new Date(iso);

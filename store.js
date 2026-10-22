@@ -28,7 +28,7 @@
 // A task's pageId always mirrors its section's pageId; it's kept redundantly
 // for simpler filtering.
 
-import { advanceDate, todayStr, localDateOf } from "./dates.js";
+import { advanceDate, dailyDayOf } from "./dates.js";
 
 // Moves a "YYYY-MM-DDTHH:MM" reminder by however many days a recurring
 // task's due date moved (fromDue → toDue). No due date → nothing to
@@ -167,11 +167,6 @@ function normalizeState(raw) {
   return { pages, sections, tasks, trash };
 }
 
-// Local date, not the UTC one — see localDateOf in dates.js.
-function dateOnly(iso) {
-  return localDateOf(iso);
-}
-
 // A daily task (isDaily: true) that's still marked done from a PREVIOUS
 // calendar day gets flipped back to undone, in place — no new row, unlike
 // a recurring task's spawn-on-complete. Comparing against completedAt's
@@ -180,13 +175,27 @@ function dateOnly(iso) {
 // you like, it's a no-op once every daily task is already caught up for
 // today. Returns whether anything actually changed, so callers can skip
 // persisting/notifying on the (overwhelmingly common) no-op case.
-function resetDailyTasks() {
-  const today = todayStr();
+//
+// The rule, the same no matter where it was checked (Today list, phone home
+// screen, its own list, another device): every daily task checked on an
+// earlier day unchecks at 12:01 AM local time. `doneDay` records which day a
+// check-off counted for, fixed at the moment it was checked.
+function checkedDayOf(t) {
+  if (t.doneDay) return t.doneDay;
+  return t.completedAt ? dailyDayOf(t.completedAt) : null;
+}
+function resetDailyTasks(now) {
+  const today = dailyDayOf(now || new Date());
   let changed = false;
   state.tasks.forEach((t) => {
-    if (t.isDaily && t.done && dateOnly(t.completedAt) !== today) {
+    if (!t.isDaily || !t.done) return;
+    const day = checkedDayOf(t);
+    // No record of when (old data) or an earlier day: uncheck. A LATER day
+    // (a device whose clock or time zone is ahead) is left alone.
+    if (!day || day < today) {
       t.done = false;
       t.completedAt = null;
+      t.doneDay = null;
       t.updatedAt = nowIso();
       changed = true;
     }
@@ -280,8 +289,8 @@ export const store = {
   // Deliberately NOT pushed to the undo stack — this is automatic
   // day-rollover housekeeping, not something the user just did, so
   // Ctrl+Z shouldn't be able to "undo" a day actually passing.
-  checkDailyReset() {
-    const reset = resetDailyTasks();
+  checkDailyReset(now) {
+    const reset = resetDailyTasks(now);
     const purged = purgeOldTrash();
     if (reset || purged) persist();
   },
@@ -619,6 +628,7 @@ export const store = {
     const next = !t.done;
     t.done = next;
     t.completedAt = next ? nowIso() : null;
+    t.doneDay = next ? dailyDayOf(new Date()) : null;
     t.updatedAt = nowIso();
     // A daily task resets itself in place (see resetDailyTasks) — it never
     // spawns a new row the way a recurring task does, even if `recurrence`
@@ -776,6 +786,9 @@ export const store = {
       // instead of being wiped, e.g. "Daily task" on a project whose
       // shared_tasks table predates the is_daily column.
       Object.keys(task).forEach((k) => { if (task[k] !== undefined) merged[k] = task[k]; });
+      // Shared-list rows don't carry doneDay; work it out from the
+      // completion time so the 12:01 AM rule still applies.
+      if (task.doneDay === undefined) merged.doneDay = merged.done && merged.completedAt ? dailyDayOf(merged.completedAt) : null;
       merged.remindAt = local.remindAt || null;
       merged.remindBefore = local.remindBefore == null ? null : local.remindBefore;
       state.tasks[i] = merged;

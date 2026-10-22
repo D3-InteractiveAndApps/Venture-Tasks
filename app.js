@@ -3,6 +3,7 @@
 // directly by index.html as a native ES module.
 
 import { store } from "./store.js";
+import { msUntilNextDailyReset } from "./dates.js";
 import * as ai from "./ai.js";
 import { initUI } from "./ui.js";
 import { initSettings } from "./settings.js";
@@ -18,13 +19,22 @@ initSettings(store, ai, () => uiApi.refresh());
 initSync(store);
 initUndo(store);
 
-// Daily tasks (see store.js) reset themselves back to undone once the
-// calendar day they were completed on has passed. The module-load check
-// in store.js already covers "the app was closed overnight" — this covers
-// "the app was left open across midnight," by re-checking on an interval
-// cheap enough to just leave running. 60s is plenty; it's a no-op scan
-// unless the date has actually changed.
-setInterval(() => store.checkDailyReset(), 60 * 1000);
+// Daily tasks (see store.js) reset themselves back to undone. The check in
+// store.js when the app loads covers "the app was closed overnight". The
+// code below covers "the app stayed open (or asleep in the background)
+// across 12:01 AM".
+// Daily tasks uncheck at 12:01 AM local time. A timer is set for exactly
+// that moment. Phones pause timers while an app sleeps, so the check also
+// runs every 30 seconds and whenever the app comes back to the screen:
+// open it in the morning and yesterday's check marks are already gone.
+function scheduleDailyReset() {
+  setTimeout(() => { store.checkDailyReset(); scheduleDailyReset(); }, msUntilNextDailyReset(new Date()) + 250);
+}
+scheduleDailyReset();
+setInterval(() => store.checkDailyReset(), 30 * 1000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") store.checkDailyReset(); });
+window.addEventListener("focus", () => store.checkDailyReset());
+window.addEventListener("pageshow", () => store.checkDailyReset());
 
 // Opt-in reminders + app-icon badge (Settings → Reminders). Worked out on
 // this device while the app is open — see reminders.js for the limits.
