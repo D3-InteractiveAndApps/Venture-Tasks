@@ -238,6 +238,7 @@ export function taskToRow(task, sharedPageId) {
     value: task.value == null ? null : task.value,
     note: task.note || null,
     is_daily: !!task.isDaily,
+    ingredients: Array.isArray(task.ingredients) ? task.ingredients : null,
     updated_at: task.updatedAt || new Date().toISOString(),
     completed_at: task.completedAt || null
   };
@@ -248,21 +249,28 @@ export function taskToRow(task, sharedPageId) {
 // specific error, drop them and retry (notes / the daily flag just won't
 // sync to other members until the SQL is in), rather than breaking every
 // edit to a shared list.
-const V9_TASK_COLUMNS = ["note", "is_daily"];
-let serverHasV9Columns = true;
-function isMissingV9ColumnError(err) {
+const OPTIONAL_TASK_COLUMNS = ["note", "is_daily", "ingredients"]; // v9 + v12
+const missingTaskColumns = new Set();
+function missingColumnIn(err) {
   const msg = (err && (err.message || err.details || "")) + "";
-  return V9_TASK_COLUMNS.some((c) => msg.includes("'" + c + "'") || msg.includes('"' + c + '"') || msg.includes(" " + c + " "));
+  return OPTIONAL_TASK_COLUMNS.find((c) => !missingTaskColumns.has(c) && (msg.includes("'" + c + "'") || msg.includes('"' + c + '"') || msg.includes(" " + c + " ")));
 }
-function withoutV9Columns(rows) {
-  return rows.map((r) => { const copy = Object.assign({}, r); V9_TASK_COLUMNS.forEach((c) => delete copy[c]); return copy; });
+function withoutMissingColumns(rows) {
+  if (!missingTaskColumns.size) return rows;
+  return rows.map((r) => { const copy = Object.assign({}, r); missingTaskColumns.forEach((c) => delete copy[c]); return copy; });
 }
+// Columns added by later SQL upgrades (v9-upgrade.sql, v12-upgrade.sql).
+// If the app update is live before that SQL has been run, the server rejects
+// rows mentioning a column it doesn't have. On that error, drop just that
+// column and retry, so notes or ingredients won't reach other members until
+// the SQL is in, but every other edit still syncs.
 async function writeSharedTasks(method, rows) {
-  const payload = serverHasV9Columns ? rows : withoutV9Columns(rows);
-  let res = await client.from("shared_tasks")[method](payload);
-  if (res.error && serverHasV9Columns && isMissingV9ColumnError(res.error)) {
-    serverHasV9Columns = false;
-    res = await client.from("shared_tasks")[method](withoutV9Columns(rows));
+  let res = await client.from("shared_tasks")[method](withoutMissingColumns(rows));
+  for (let i = 0; i < OPTIONAL_TASK_COLUMNS.length && res.error; i++) {
+    const col = missingColumnIn(res.error);
+    if (!col) break;
+    missingTaskColumns.add(col);
+    res = await client.from("shared_tasks")[method](withoutMissingColumns(rows));
   }
   return res;
 }
@@ -301,6 +309,7 @@ export function rowToTask(row, pageId) {
     // upsertRemoteTask in store.js.
     note: "note" in row ? (row.note || null) : undefined,
     isDaily: "is_daily" in row ? !!row.is_daily : undefined,
+    ingredients: "ingredients" in row ? (Array.isArray(row.ingredients) ? row.ingredients : []) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at || null
@@ -324,6 +333,7 @@ export function tasksEqual(a, b) {
     && recurrenceKey(a.recurrence) === recurrenceKey(b.recurrence) && !!a.isSomeday === !!b.isSomeday
     && (a.note === undefined || b.note === undefined || (a.note || null) === (b.note || null))
     && (a.isDaily === undefined || b.isDaily === undefined || !!a.isDaily === !!b.isDaily)
+    && (a.ingredients === undefined || b.ingredients === undefined || JSON.stringify(a.ingredients || []) === JSON.stringify(b.ingredients || []))
     && (a.client || null) === (b.client || null) && (a.value == null ? null : a.value) === (b.value == null ? null : b.value)
     && a.sectionId === b.sectionId;
 }
@@ -786,6 +796,9 @@ export function calendarFeedUrl(token) {
 
 function describeError(e) {
   if (!e) return "Unknown sync error.";
+  if (e.message && /shared_pages_type_check/.test(e.message)) {
+    return "Sharing meal plans needs a quick server update first: run v12-upgrade.sql in Supabase (see the README).";
+  }
   if (e.message) return e.message;
   return String(e);
 }

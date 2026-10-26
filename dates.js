@@ -12,11 +12,6 @@ export function todayStr() {
   return fmtDate(new Date());
 }
 
-// The LOCAL calendar date ("YYYY-MM-DD") of a stored timestamp. Timestamps
-// like completedAt are saved in UTC (toISOString), so just taking the first
-// 10 characters gives the UTC date. In Michigan, that's already
-// "tomorrow" from 8 PM on, which is how a daily task checked off in the
-// evening used to stay checked all the next day.
 // Daily tasks uncheck themselves at 12:01 AM local time. A "daily day" runs
 // from 12:01 AM to 12:00 AM the next night, so a check-off at 11:59 PM or at
 // 12:00:30 AM both count for the day that's ending.
@@ -39,6 +34,11 @@ export function msUntilNextDailyReset(now) {
   return next - n;
 }
 
+// The LOCAL calendar date ("YYYY-MM-DD") of a stored timestamp. Timestamps
+// like completedAt are saved in UTC (toISOString), so just taking the first
+// 10 characters gives the UTC date. In Michigan, that's already
+// "tomorrow" from 8 PM on, which is how a daily task checked off in the
+// evening used to stay checked all the next day.
 export function localDateOf(iso) {
   if (!iso) return null;
   const d = new Date(iso);

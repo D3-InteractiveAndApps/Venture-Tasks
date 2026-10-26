@@ -150,7 +150,7 @@ function normalizeState(raw) {
   // has these keys present but malformed, rather than just missing —
   // downstream code assumes linkedListIds is always a real array.
   pages = pages.map((p) => Object.assign({}, p, {
-    type: p.type === "grocery" || p.type === "calendar" ? p.type : "tasks",
+    type: p.type === "grocery" || p.type === "calendar" || p.type === "meals" ? p.type : "tasks",
     linkedListIds: Array.isArray(p.linkedListIds) ? p.linkedListIds : []
   }));
 
@@ -184,18 +184,80 @@ function checkedDayOf(t) {
   if (t.doneDay) return t.doneDay;
   return t.completedAt ? dailyDayOf(t.completedAt) : null;
 }
+//
+// Repeating to-dos (Repeat: weekly, Mon & Wed, …) follow the same rule
+// as daily tasks. They're ONE row: check it off and it stays checked for the
+// rest of that day. At 12:01 AM it unchecks and its due date moves to the
+// next scheduled day. (Before v12 every check-off created a second copy for
+// the next date instead.) Calendar events are different: their repeats are
+// drawn on the grid, so they're left alone here.
+function isRepeatingTodo(t) {
+  if (!t.recurrence || t.isDaily) return false;
+  const page = findPage(t.pageId);
+  return !page || (page.type !== "calendar" && page.type !== "meals");
+}
+
+// The next scheduled date strictly after both the current due date and the
+// day it was checked off. Checked early (Sunday, for Monday) → Wednesday;
+// checked late (Thursday, for Monday) → the following Monday.
+function nextDueAfter(t, checkedDay) {
+  let next = advanceDate(t.dueDate || checkedDay, t.recurrence);
+  for (let i = 0; i < 4000 && next <= checkedDay; i++) {
+    const step = advanceDate(next, t.recurrence);
+    if (step <= next) break;
+    next = step;
+  }
+  return next;
+}
+
 function resetDailyTasks(now) {
   const today = dailyDayOf(now || new Date());
   let changed = false;
   state.tasks.forEach((t) => {
-    if (!t.isDaily || !t.done) return;
+    if (!t.done) return;
+    const repeating = isRepeatingTodo(t);
+    if (!t.isDaily && !repeating) return;
     const day = checkedDayOf(t);
     // No record of when (old data) or an earlier day: uncheck. A LATER day
     // (a device whose clock or time zone is ahead) is left alone.
     if (!day || day < today) {
+      if (repeating) {
+        const from = t.dueDate;
+        const nextDue = nextDueAfter(t, day || today);
+        t.dueDate = nextDue;
+        // A "remind me" time rides along with the due date.
+        if (t.remindAt && from) t.remindAt = shiftRemindAt(t.remindAt, from, nextDue);
+        else if (t.remindAt && t.remindAt.slice(0, 10) < today) t.remindAt = null;
+      }
       t.done = false;
       t.completedAt = null;
       t.doneDay = null;
+      t.updatedAt = nowIso();
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+// One-time tidy-up for data from before v12, when checking off a repeating
+// to-do created a second copy for the next date. A checked-off repeating
+// to-do with an unchecked copy of itself (same list, section, text and
+// repeat pattern) is one of those old copies. It stays as a checked-off
+// record but no longer repeats, so the new 12:01 AM rule doesn't bring it
+// back as a duplicate. Nothing is deleted.
+function retireOldRepeatCopies() {
+  const recKey = (r) => (r ? JSON.stringify([r.unit, r.interval || 1, (r.days || []).slice().sort()]) : "");
+  const activeKeys = new Set();
+  state.tasks.forEach((t) => {
+    if (!t.done && isRepeatingTodo(t)) activeKeys.add([t.pageId, t.sectionId, (t.text || "").trim().toLowerCase(), recKey(t.recurrence)].join("|"));
+  });
+  let changed = false;
+  state.tasks.forEach((t) => {
+    if (!t.done || !isRepeatingTodo(t)) return;
+    const key = [t.pageId, t.sectionId, (t.text || "").trim().toLowerCase(), recKey(t.recurrence)].join("|");
+    if (activeKeys.has(key)) {
+      t.recurrence = null;
+      t.remindAt = null;
       t.updatedAt = nowIso();
       changed = true;
     }
@@ -211,7 +273,8 @@ let state = normalizeState(rawLoadedData);
 // any daily tasks left checked from a previous day (the app may have been
 // closed when that day rolled over) in the same write.
 const migratedOnLoad = JSON.stringify(rawLoadedData) !== JSON.stringify(state);
-const dailyResetOnLoad = resetDailyTasks();
+const oldCopiesRetired = retireOldRepeatCopies();
+const dailyResetOnLoad = resetDailyTasks() || oldCopiesRetired;
 const trashPurgedOnLoad = purgeOldTrash();
 if (migratedOnLoad || dailyResetOnLoad || trashPurgedOnLoad) writeJson(DATA_KEY, state);
 
@@ -250,8 +313,38 @@ function applyIncomingData(incoming) {
   // Data coming from another device or a backup can still have a daily
   // task checked from an earlier day; catch it up right away instead of
   // waiting for the next once-a-minute check.
+  retireOldRepeatCopies();
   resetDailyTasks();
   persist();
+}
+
+// A fresh task/item with every field at its default.
+function newTask(sectionId, text) {
+  const section = findSection(sectionId);
+  return {
+    id: uid(),
+    text: text,
+    done: false,
+    sectionId: sectionId,
+    pageId: section ? section.pageId : null,
+    order: Date.now(),
+    // A new task/item starts color-matched to its own section (every
+    // section always has a real color, assigned from SECTION_PALETTE at
+    // creation); it can still be changed individually afterward.
+    color: section ? section.color : null,
+    dueDate: null,
+    eventTime: null,
+    recurrence: null,
+    isSomeday: false,
+    isDaily: false,
+    client: null,
+    value: null,
+    note: null,
+    remindAt: null,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    completedAt: null
+  };
 }
 
 function findPage(id) { return state.pages.find((p) => p.id === id); }
@@ -302,7 +395,7 @@ export const store = {
   // duplicate clutter.
   addPage(name, type, seedDefaults) {
     pushUndo();
-    const pageType = type === "grocery" ? "grocery" : type === "calendar" ? "calendar" : "tasks";
+    const pageType = type === "grocery" || type === "calendar" || type === "meals" ? type : "tasks";
     const page = {
       id: uid(),
       name: (name || "Untitled").trim() || "Untitled",
@@ -327,6 +420,9 @@ export const store = {
           createdAt: nowIso()
         });
       });
+    } else if (pageType === "meals" && seedDefaults !== false) {
+      // Like a calendar, a meal plan keeps its meals in one hidden section.
+      state.sections.push({ id: uid(), pageId: page.id, name: "Meals", order: 1, color: SECTION_PALETTE[2 % SECTION_PALETTE.length], createdAt: nowIso() });
     } else if (pageType === "calendar" && seedDefaults !== false) {
       // A calendar page's events all live in one implicit section — the
       // UI never shows "sections" for a calendar page, this just reuses
@@ -495,36 +591,59 @@ export const store = {
   // --- tasks (a section's "items" when its page is a grocery list) ---
   addTask(sectionId, text) {
     pushUndo();
-    const section = findSection(sectionId);
-    const task = {
-      id: uid(),
-      text: text,
-      done: false,
-      sectionId: sectionId,
-      pageId: section ? section.pageId : null,
-      order: Date.now(),
-      // A new task/item starts color-matched to its own section (every
-      // section always has a real color, assigned from SECTION_PALETTE
-      // at creation) rather than the generic gray default — the user can
-      // still override it individually afterward via the row's own color
-      // swatch, same as always.
-      color: section ? section.color : null,
-      dueDate: null,
-      eventTime: null,
-      recurrence: null,
-      isSomeday: false,
-      isDaily: false,
-      client: null,
-      value: null,
-      note: null,
-      remindAt: null,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-      completedAt: null
-    };
+    const task = newTask(sectionId, text);
     state.tasks.push(task);
     persist();
     return task;
+  },
+
+  // Several items into (possibly different) sections as ONE undo step, e.g.
+  // a meal's ingredients going onto the grocery list. items: [{sectionId, text}]
+  addTasks(items) {
+    if (!items || !items.length) return [];
+    pushUndo();
+    const made = items.map((it, i) => {
+      const t = newTask(it.sectionId, it.text);
+      t.order = Date.now() + i;
+      state.tasks.push(t);
+      return t;
+    });
+    persist();
+    return made;
+  },
+
+  // --- meal plans (page.type === "meals") ---
+  // A meal is a task on the plan's one section: text = meal name,
+  // dueDate = the day, plus `ingredients` (array of strings) and `note`.
+  // meals: [{ text, dueDate, ingredients, note }]. One undo step.
+  addMeals(pageId, meals) {
+    if (!meals || !meals.length) return [];
+    pushUndo();
+    let section = state.sections.filter((s) => s.pageId === pageId).sort((a, b) => a.order - b.order)[0];
+    if (!section) {
+      section = { id: uid(), pageId, name: "Meals", order: 1, color: SECTION_PALETTE[2 % SECTION_PALETTE.length], createdAt: nowIso() };
+      state.sections.push(section);
+    }
+    const made = meals.map((m, i) => {
+      const t = newTask(section.id, (m.text || "").trim() || "Dinner");
+      t.order = Date.now() + i;
+      t.dueDate = m.dueDate || null;
+      t.ingredients = Array.isArray(m.ingredients) ? m.ingredients.slice() : [];
+      t.note = m.note || null;
+      state.tasks.push(t);
+      return t;
+    });
+    persist();
+    return made;
+  },
+
+  // Which grocery list a meal plan sends its ingredients to. A preference,
+  // not an edit, so it's not on the undo stack.
+  setMealGroceryTarget(pageId, groceryPageId) {
+    const p = findPage(pageId);
+    if (!p) return;
+    p.groceryPageId = groceryPageId || null;
+    persist();
   },
 
   updateTask(id, patch) {
@@ -630,40 +749,9 @@ export const store = {
     t.completedAt = next ? nowIso() : null;
     t.doneDay = next ? dailyDayOf(new Date()) : null;
     t.updatedAt = nowIso();
-    // A daily task resets itself in place (see resetDailyTasks) — it never
-    // spawns a new row the way a recurring task does, even if `recurrence`
-    // somehow ended up set alongside it. A recurring CALENDAR event also
-    // doesn't spawn: ui.js's renderCalendarGrid already projects every
-    // future occurrence of it straight onto the visible month grid as a
-    // read-only "virtual" chip (see projectOccurrences there), so spawning
-    // a second real row here on top of that would just duplicate it.
-    const ownerPage = findPage(t.pageId);
-    const isCalendarEvent = ownerPage && ownerPage.type === "calendar";
-    if (next && t.recurrence && !t.isDaily && !isCalendarEvent) {
-      const nextDue = advanceDate(t.dueDate, t.recurrence);
-      state.tasks.push({
-        id: uid(),
-        text: t.text,
-        done: false,
-        sectionId: t.sectionId,
-        pageId: t.pageId,
-        order: Date.now(),
-        color: t.color || null,
-        dueDate: nextDue,
-        eventTime: t.eventTime || null,
-        recurrence: t.recurrence,
-        isSomeday: !!t.isSomeday,
-        note: t.note || null,
-        // A "remind me" time rides along with the due date: if this one
-        // reminded the evening before it was due, so does the next one.
-        remindAt: shiftRemindAt(t.remindAt, t.dueDate, nextDue),
-        client: t.client || null,
-        value: t.value || null,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-        completedAt: null
-      });
-    }
+    // Daily tasks AND repeating to-dos stay one row: checked for the rest
+    // of today, then resetDailyTasks unchecks them at 12:01 AM (moving a
+    // repeating one's due date to its next scheduled day). No copies.
     persist();
   },
 
@@ -794,6 +882,7 @@ export const store = {
       state.tasks[i] = merged;
     }
     // A daily task arriving still checked from an earlier day resets now.
+    retireOldRepeatCopies();
     resetDailyTasks();
     persist();
   },

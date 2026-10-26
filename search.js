@@ -45,7 +45,7 @@ export function searchEverything(state, query, limit) {
     const page = pageById[t.pageId];
     if (!page) return;
     const text = t.text || "";
-    if (!matchesAll(text + " " + (t.client || "") + " " + (t.note || ""), ws)) return;
+    if (!matchesAll(text + " " + (t.client || "") + " " + (t.note || "") + " " + (Array.isArray(t.ingredients) ? t.ingredients.join(" ") : ""), ws)) return;
     const startsWith = text.toLowerCase().startsWith(first);
     // Lower rank sorts first: open before done, prefix matches before mid-text.
     const rank = 2 + (t.done ? 2 : 0) + (startsWith ? 0 : 1);

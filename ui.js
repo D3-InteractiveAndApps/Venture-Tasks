@@ -44,6 +44,11 @@ const PAGE_LABELS = {
     emptyAll: "No categories yet. Add your first one below.",
     noun: "category", nounCap: "Category"
   },
+  meals: {
+    addSectionPlaceholder: "", addSectionBtn: "",
+    addTaskPlaceholder: () => "", emptyTasks: "", emptyAll: "",
+    noun: "meal", nounCap: "Meal"
+  },
   // Calendar pages bypass almost all of this (see render()'s isCalendar
   // branch) — kept mostly so nothing downstream chokes on a missing entry.
   calendar: {
@@ -477,10 +482,17 @@ export function initUI(store, ai) {
   function buildTodayRow(entry, container) {
     const task = entry.task, page = entry.page, section = entry.section;
     const isEvent = page.type === "calendar";
+    const isMeal = page.type === "meals";
     const row = document.createElement("div");
-    row.className = "today-row" + (task.done && !entry.virtual ? " is-done" : "") + (isEvent ? " is-event" : "") + (task.isDaily ? " is-daily" : "");
+    row.className = "today-row" + (task.done && !entry.virtual ? " is-done" : "") + (isEvent ? " is-event" : "") + (isMeal ? " is-meal" : "") + (task.isDaily ? " is-daily" : "");
 
-    if (entry.virtual) {
+    if (isMeal) {
+      const glyph = document.createElement("span");
+      glyph.className = "today-row-glyph";
+      glyph.textContent = "🍽";
+      glyph.setAttribute("aria-hidden", "true");
+      row.appendChild(glyph);
+    } else if (entry.virtual) {
       // Today's occurrence of a repeating event — nothing real to check
       // off here (only its original date is a real row), same as the grid.
       const glyph = document.createElement("span");
@@ -523,7 +535,7 @@ export function initUI(store, ai) {
       dailyBadge.className = "today-daily-badge";
       dailyBadge.textContent = "☀ Daily";
       row.appendChild(dailyBadge);
-    } else if (!isEvent) {
+    } else if (!isEvent && !isMeal) {
       const due = dueBadgeInfo(task.dueDate);
       if (due) {
         const dueBadge = document.createElement("span");
@@ -537,7 +549,7 @@ export function initUI(store, ai) {
     const pageTag = document.createElement("button");
     pageTag.type = "button";
     pageTag.className = "today-page-tag";
-    pageTag.textContent = (page.name || "Untitled") + (section && !isEvent ? " · " + (section.name || "Untitled") : "");
+    pageTag.textContent = (page.name || "Untitled") + (section && !isEvent && !isMeal ? " · " + (section.name || "Untitled") : "");
     pageTag.title = "Jump to " + (page.name || "Untitled");
     pageTag.addEventListener("click", () => {
       if (isEvent) {
@@ -556,7 +568,7 @@ export function initUI(store, ai) {
   // screen's own Today block.
   function fillTodayList(container, items) {
     container.innerHTML = "";
-    const anything = items.overdue.length + items.dueToday.length + items.daily.length + items.events.length;
+    const anything = items.overdue.length + items.dueToday.length + items.daily.length + items.events.length + (items.meals || []).length;
     if (anything === 0) {
       const empty = document.createElement("div");
       empty.className = "today-empty";
@@ -577,6 +589,7 @@ export function initUI(store, ai) {
     const dailyDone = items.daily.filter((e) => e.task.done).length;
     buildGroup("Daily", items.daily, dailyDone + " of " + items.daily.length + " done");
     buildGroup("Events today", items.events);
+    buildGroup("Tonight's dinner", items.meals || []);
   }
 
   function renderTodayPanel(state) {
@@ -1245,6 +1258,297 @@ export function initUI(store, ai) {
     tabsEl.appendChild(addTab);
   }
 
+  // --- Meal plan (page.type === "meals") ---
+  // A week of dinners, Sunday to Saturday (the same week layout as the
+  // Family Calendar). Each meal is a task on the page's one hidden section:
+  // text = the meal, dueDate = the day, ingredients = [strings], note. Its
+  // ingredients can go onto a grocery list in one tap, each filed into the
+  // right category and skipped if it's already on the list.
+  const mealWeekByPage = {}; // pageId -> "YYYY-MM-DD" (Sunday) being viewed
+  const mealStatusByPage = {}; // pageId -> last "added N items" message
+  let mealEditing = null; // { pageId, taskId|null }
+
+  function mealWeekStart(date) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    d.setDate(d.getDate() - d.getDay());
+    return fmtDate(d);
+  }
+  function mealNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+  function parseIngredients(text) {
+    return String(text || "").split(/\n|,(?![^(]*\))/).map((x) => x.trim().replace(/^[-•*]\s*/, "")).filter(Boolean).slice(0, 60);
+  }
+  function groceryPagesOf(state) {
+    return state.pages.filter((p) => p.type === "grocery").sort((a, b) => a.order - b.order);
+  }
+  function mealTargetPage(state, page) {
+    const lists = groceryPagesOf(state);
+    return lists.find((p) => p.id === page.groceryPageId) || lists[0] || null;
+  }
+
+  // Puts ingredients on a grocery list. Returns { added, skipped, listName }.
+  function addIngredientsToGrocery(mealPage, ingredients) {
+    let state = store.getState();
+    let target = mealTargetPage(state, mealPage);
+    if (!target) {
+      target = store.addPage("Groceries", "grocery");
+      store.setMealGroceryTarget(mealPage.id, target.id);
+      state = store.getState();
+    }
+    let sections = state.sections.filter((s) => s.pageId === target.id).sort((a, b) => a.order - b.order);
+    if (!sections.length) {
+      store.addSection(target.id, "Other");
+      state = store.getState();
+      sections = state.sections.filter((s) => s.pageId === target.id);
+    }
+    const names = sections.map((s) => s.name);
+    const fallback = sections.find((s) => /^other$/i.test(s.name || "")) || sections[0];
+    const onList = new Set(state.tasks.filter((t) => t.pageId === target.id && !t.done).map((t) => mealNorm(t.text)));
+    const items = [];
+    let skipped = 0;
+    ingredients.forEach((ing) => {
+      const key = mealNorm(ing);
+      if (!key) return;
+      if (onList.has(key)) { skipped++; return; }
+      onList.add(key);
+      const cat = guessCategory(ing, names);
+      const section = (cat && sections.find((s) => s.name === cat)) || fallback;
+      items.push({ sectionId: section.id, text: ing.trim() });
+    });
+    if (items.length) store.addTasks(items);
+    return { added: items.length, skipped, listName: target.name || "Groceries" };
+  }
+  function shopMessage(r) {
+    if (!r.added && !r.skipped) return "No ingredients to add yet. Open a meal and list what it needs.";
+    let msg = r.added ? "Added " + r.added + " item" + (r.added === 1 ? "" : "s") + " to " + r.listName + "." : "Everything's already on " + r.listName + ".";
+    if (r.added && r.skipped) msg += " (" + r.skipped + " already on it.)";
+    return msg;
+  }
+
+  function renderMealPlan(state, page, tasks) {
+    const todayKey = todayStr();
+    const start = mealWeekByPage[page.id] || mealWeekStart(new Date());
+    const end = addDaysStr(start, 6);
+    const wrap = document.createElement("div");
+    wrap.className = "meal-plan";
+
+    // Toolbar: week navigation + shopping.
+    const bar = document.createElement("div");
+    bar.className = "meal-toolbar";
+    const nav = document.createElement("div");
+    nav.className = "meal-week-nav";
+    const go = (days) => { mealWeekByPage[page.id] = addDaysStr(start, days); mealStatusByPage[page.id] = ""; render(store.getState()); };
+    const prev = document.createElement("button");
+    prev.type = "button"; prev.className = "calendar-nav-btn meal-prev"; prev.textContent = "‹"; prev.setAttribute("aria-label", "Previous week");
+    prev.addEventListener("click", () => go(-7));
+    const next = document.createElement("button");
+    next.type = "button"; next.className = "calendar-nav-btn meal-next"; next.textContent = "›"; next.setAttribute("aria-label", "Next week");
+    next.addEventListener("click", () => go(7));
+    const label = document.createElement("span");
+    label.className = "meal-week-label";
+    const sD = new Date(start + "T00:00:00"), eD = new Date(end + "T00:00:00");
+    const sameMonth = sD.getMonth() === eD.getMonth();
+    label.textContent = sD.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " – " +
+      eD.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" });
+    nav.appendChild(prev); nav.appendChild(label); nav.appendChild(next);
+    if (start !== mealWeekStart(new Date())) {
+      const thisWeek = document.createElement("button");
+      thisWeek.type = "button"; thisWeek.className = "secondary-btn meal-this-week"; thisWeek.textContent = "This week";
+      thisWeek.addEventListener("click", () => { delete mealWeekByPage[page.id]; mealStatusByPage[page.id] = ""; render(store.getState()); });
+      nav.appendChild(thisWeek);
+    }
+    bar.appendChild(nav);
+
+    const actions = document.createElement("div");
+    actions.className = "meal-actions";
+    const lists = groceryPagesOf(state);
+    const target = mealTargetPage(state, page);
+    if (lists.length > 1) {
+      const pick = document.createElement("label");
+      pick.className = "meal-target";
+      pick.appendChild(document.createTextNode("Shopping list "));
+      const sel = document.createElement("select");
+      sel.className = "meal-target-select";
+      lists.forEach((l) => { const o = document.createElement("option"); o.value = l.id; o.textContent = l.name || "Untitled"; sel.appendChild(o); });
+      sel.value = target.id;
+      sel.addEventListener("change", () => store.setMealGroceryTarget(page.id, sel.value));
+      pick.appendChild(sel);
+      actions.appendChild(pick);
+    }
+    const weekMeals = tasks.filter((t) => t.dueDate && t.dueDate >= start && t.dueDate <= end);
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button"; copyBtn.className = "secondary-btn meal-copy-btn"; copyBtn.textContent = "Copy last week";
+    copyBtn.title = "Fill this week's empty days with last week's meals";
+    copyBtn.addEventListener("click", () => {
+      const prevStart = addDaysStr(start, -7);
+      const taken = new Set(weekMeals.map((t) => t.dueDate));
+      const copies = tasks
+        .filter((t) => t.dueDate && t.dueDate >= prevStart && t.dueDate < start && !taken.has(addDaysStr(t.dueDate, 7)))
+        .sort((a, b) => (a.dueDate + a.order).localeCompare(b.dueDate + b.order))
+        .map((t) => ({ text: t.text, dueDate: addDaysStr(t.dueDate, 7), ingredients: t.ingredients || [], note: t.note || null }));
+      mealStatusByPage[page.id] = copies.length ? "Copied " + copies.length + " meal" + (copies.length === 1 ? "" : "s") + " from last week." : "Nothing to copy: last week had no meals on this week's empty days.";
+      if (copies.length) store.addMeals(page.id, copies); else render(store.getState());
+    });
+    actions.appendChild(copyBtn);
+    const shopBtn = document.createElement("button");
+    shopBtn.type = "button"; shopBtn.className = "primary-btn meal-shop-btn";
+    shopBtn.textContent = "\u{1F6D2} Add week to " + (target ? target.name || "list" : "a grocery list");
+    shopBtn.addEventListener("click", () => {
+      const all = [];
+      weekMeals.slice().sort((a, b) => a.dueDate.localeCompare(b.dueDate)).forEach((t) => (t.ingredients || []).forEach((i) => all.push(i)));
+      const r = addIngredientsToGrocery(page, all);
+      mealStatusByPage[page.id] = shopMessage(r);
+      render(store.getState());
+    });
+    actions.appendChild(shopBtn);
+    bar.appendChild(actions);
+    const status = document.createElement("p");
+    status.className = "meal-status";
+    status.setAttribute("role", "status");
+    status.textContent = mealStatusByPage[page.id] || "";
+    status.hidden = !status.textContent;
+    bar.appendChild(status);
+    wrap.appendChild(bar);
+
+    // The week.
+    const days = document.createElement("div");
+    days.className = "meal-days";
+    for (let i = 0; i < 7; i++) {
+      const dateKey = addDaysStr(start, i);
+      const d = new Date(dateKey + "T00:00:00");
+      const card = document.createElement("section");
+      card.className = "meal-day" + (dateKey === todayKey ? " is-today" : "") + (dateKey < todayKey ? " is-past" : "");
+      card.dataset.date = dateKey;
+      const head = document.createElement("div");
+      head.className = "meal-day-head";
+      const dow = document.createElement("strong");
+      dow.textContent = d.toLocaleDateString(undefined, { weekday: "long" });
+      const dt = document.createElement("span");
+      dt.className = "meal-day-date";
+      dt.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      head.appendChild(dow); head.appendChild(dt);
+      if (dateKey === todayKey) { const tag = document.createElement("span"); tag.className = "meal-today-tag"; tag.textContent = "Tonight"; head.appendChild(tag); }
+      card.appendChild(head);
+
+      const meals = tasks.filter((t) => t.dueDate === dateKey).sort((a, b) => a.order - b.order);
+      meals.forEach((m) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "meal-entry";
+        btn.dataset.taskId = m.id;
+        const name = document.createElement("span");
+        name.className = "meal-name";
+        name.textContent = m.text || "Dinner";
+        btn.appendChild(name);
+        const ings = m.ingredients || [];
+        const sub = document.createElement("span");
+        sub.className = "meal-ingredients";
+        sub.textContent = ings.length ? ings.join(" · ") : "No ingredients listed — tap to add";
+        btn.appendChild(sub);
+        if (m.note) { const n = document.createElement("span"); n.className = "meal-note"; n.textContent = "📝 " + m.note; btn.appendChild(n); }
+        btn.addEventListener("click", () => openMealEditor(page.id, dateKey, m));
+        card.appendChild(btn);
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "meal-add";
+      add.textContent = meals.length ? "+ Add another" : "+ Plan dinner";
+      add.setAttribute("aria-label", "Plan a meal for " + d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }));
+      add.addEventListener("click", () => openMealEditor(page.id, dateKey, null));
+      card.appendChild(add);
+      days.appendChild(card);
+    }
+    wrap.appendChild(days);
+    sectionsEl.appendChild(wrap);
+  }
+
+  // Meal editor modal
+  const mealOverlay = document.getElementById("meal-overlay");
+  const mealTitle = document.getElementById("meal-title");
+  const mealDate = document.getElementById("meal-date");
+  const mealName = document.getElementById("meal-name");
+  const mealSuggest = document.getElementById("meal-name-suggestions");
+  const mealIngredients = document.getElementById("meal-ingredients");
+  const mealNote = document.getElementById("meal-note");
+  const mealReuseHint = document.getElementById("meal-reuse-hint");
+  const mealSaveBtn = document.getElementById("meal-save");
+  const mealShopBtn = document.getElementById("meal-shop");
+  const mealDeleteBtn = document.getElementById("meal-delete");
+
+  function pastMealsOf(pageId) {
+    return store.getState().tasks.filter((t) => t.pageId === pageId && t.text).sort((a, b) => (b.dueDate || "").localeCompare(a.dueDate || ""));
+  }
+  function openMealEditor(pageId, dateKey, meal) {
+    mealEditing = { pageId, taskId: meal ? meal.id : null };
+    mealTitle.textContent = meal ? "Edit meal" : "Plan dinner";
+    mealDate.value = (meal && meal.dueDate) || dateKey;
+    mealName.value = meal ? meal.text || "" : "";
+    mealIngredients.value = meal ? (meal.ingredients || []).join("\n") : "";
+    mealNote.value = meal ? meal.note || "" : "";
+    mealDeleteBtn.hidden = !meal;
+    mealReuseHint.hidden = true;
+    mealSuggest.innerHTML = "";
+    const seen = new Set();
+    pastMealsOf(pageId).forEach((t) => {
+      const k = mealNorm(t.text);
+      if (seen.has(k)) return;
+      seen.add(k);
+      const o = document.createElement("option");
+      o.value = t.text;
+      mealSuggest.appendChild(o);
+    });
+    mealOverlay.hidden = false;
+    mealName.focus();
+  }
+  function closeMealEditor() { mealOverlay.hidden = true; mealEditing = null; }
+  // Picking a meal you've made before fills in its ingredients and notes.
+  mealName.addEventListener("input", () => {
+    if (!mealEditing || mealIngredients.value.trim()) return;
+    const k = mealNorm(mealName.value);
+    const prevMeal = k && pastMealsOf(mealEditing.pageId).find((t) => mealNorm(t.text) === k && (t.ingredients || []).length);
+    if (!prevMeal) return;
+    mealIngredients.value = prevMeal.ingredients.join("\n");
+    if (!mealNote.value.trim() && prevMeal.note) mealNote.value = prevMeal.note;
+    mealReuseHint.textContent = "Filled in from the last time you planned " + prevMeal.text + ".";
+    mealReuseHint.hidden = false;
+  });
+  function saveMeal() {
+    if (!mealEditing) return null;
+    let text = mealName.value.trim();
+    if (!text) { mealName.focus(); return null; }
+    // Typed "spaghetti" for a meal saved before as "Spaghetti": keep one spelling.
+    const same = pastMealsOf(mealEditing.pageId).find((t) => t.id !== mealEditing.taskId && mealNorm(t.text) === mealNorm(text));
+    if (same) text = same.text;
+    const fields = { text, dueDate: mealDate.value || todayStr(), ingredients: parseIngredients(mealIngredients.value), note: mealNote.value.trim() || null };
+    const pageId = mealEditing.pageId;
+    let id = mealEditing.taskId;
+    if (id) store.updateTask(id, fields);
+    else id = store.addMeals(pageId, [fields])[0].id;
+    // Saving onto a day outside the week being viewed: follow it there.
+    const start = mealWeekByPage[pageId] || mealWeekStart(new Date());
+    if (fields.dueDate < start || fields.dueDate > addDaysStr(start, 6)) {
+      mealWeekByPage[pageId] = mealWeekStart(new Date(fields.dueDate + "T00:00:00"));
+    }
+    return { pageId, id, fields };
+  }
+  mealSaveBtn.addEventListener("click", () => { if (saveMeal()) { closeMealEditor(); render(store.getState()); } });
+  mealName.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); mealSaveBtn.click(); } });
+  mealShopBtn.addEventListener("click", () => {
+    const saved = saveMeal();
+    if (!saved) return;
+    const page = store.getState().pages.find((p) => p.id === saved.pageId);
+    const r = addIngredientsToGrocery(page, saved.fields.ingredients);
+    mealStatusByPage[saved.pageId] = saved.fields.text + ": " + shopMessage(r);
+    closeMealEditor();
+    render(store.getState());
+  });
+  mealDeleteBtn.addEventListener("click", () => {
+    if (mealEditing && mealEditing.taskId) store.deleteTask(mealEditing.taskId);
+    closeMealEditor();
+  });
+  document.getElementById("meal-close").addEventListener("click", closeMealEditor);
+  mealOverlay.addEventListener("click", (e) => { if (e.target === mealOverlay) closeMealEditor(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !mealOverlay.hidden) closeMealEditor(); });
+
   // --- Family calendar (page.type === "calendar") ---
 
   function getCalendarViewMonth(pageId) {
@@ -1856,7 +2160,7 @@ export function initUI(store, ai) {
     renderCalendarDayPopup(byDate, holidaysByDate);
   }
 
-  const MOBILE_HOME_PAGE_ICON = { tasks: "✓", grocery: "\u{1F6D2}", calendar: "\u{1F4C5}" };
+  const MOBILE_HOME_PAGE_ICON = { tasks: "✓", grocery: "\u{1F6D2}", calendar: "\u{1F4C5}", meals: "\u{1F37D}" };
 
   // Per-page subtitle for a mobile home screen card. Calendars get a plain
   // label rather than an event count — a real count would mean re-deriving
@@ -1864,6 +2168,12 @@ export function initUI(store, ai) {
   // does, just for a line of text, which isn't worth the duplication.
   function mobileHomeSummary(state, p) {
     if (p.type === "calendar") return "Family calendar";
+    if (p.type === "meals") {
+      const start = mealWeekStart(new Date());
+      const end = addDaysStr(start, 6);
+      const planned = state.tasks.filter((t) => t.pageId === p.id && t.dueDate && t.dueDate >= start && t.dueDate <= end).length;
+      return planned ? planned + " meal" + (planned === 1 ? "" : "s") + " planned this week" : "Nothing planned this week";
+    }
     const pageTasks = state.tasks.filter((t) => t.pageId === p.id);
     const noun = p.type === "grocery" ? "item" : "task";
     if (pageTasks.length === 0) return "No " + noun + "s yet";
@@ -2108,16 +2418,19 @@ export function initUI(store, ai) {
     const labels = PAGE_LABELS[page.type] || PAGE_LABELS.tasks;
     const isGrocery = page.type === "grocery";
     const isCalendar = page.type === "calendar";
+    const isMeals = page.type === "meals";
+    // Calendars and meal plans draw their own views instead of sections.
+    const isSpecial = isCalendar || isMeals;
 
     // Full-screen takeover hides the sidebar/page-head/toolbar/footer
     // entirely (see styles.css) — at every viewport width, not just
     // mobile — leaving just the calendar's own minimal top bar + grid.
     document.body.classList.toggle("calendar-fullscreen", isCalendar && calendarFullscreen);
 
-    listSearchWrap.hidden = isCalendar;
+    listSearchWrap.hidden = isSpecial;
 
-    const hideDone = !isCalendar && isHideDone(page.id);
-    hideDoneBtn.hidden = isCalendar;
+    const hideDone = !isSpecial && isHideDone(page.id);
+    hideDoneBtn.hidden = isSpecial;
     hideDoneBtn.classList.toggle("active", hideDone);
     hideDoneBtn.textContent = hideDone ? "\u{1F441}️ Show done" : "☑️ Hide done";
     hideDoneBtn.setAttribute("aria-pressed", String(hideDone));
@@ -2134,26 +2447,35 @@ export function initUI(store, ai) {
 
     newSectionInput.placeholder = labels.addSectionPlaceholder;
     addSectionBtn.textContent = labels.addSectionBtn;
-    addSectionPanel.hidden = isCalendar;
+    addSectionPanel.hidden = isSpecial;
+    // Voice commands add/check list items, which a meal plan doesn't have.
+    voiceBtn.classList.toggle("hide-on-page", isMeals);
 
     const sections = state.sections.filter((s) => s.pageId === page.id).slice().sort((a, b) => a.order - b.order);
     const tasks = state.tasks.filter((t) => t.pageId === page.id);
 
-    collapseAllBtn.hidden = isCalendar || sections.length === 0;
+    collapseAllBtn.hidden = isSpecial || sections.length === 0;
     const allSectionsCollapsed = sections.length > 0 && sections.every((s) => isCollapsed(s.id));
     collapseAllBtn.classList.toggle("active", allSectionsCollapsed);
     collapseAllBtn.textContent = allSectionsCollapsed ? "⌄ Expand all" : "⌃ Collapse all";
     collapseAllBtn.setAttribute("aria-pressed", String(allSectionsCollapsed));
 
     sectionsEl.innerHTML = "";
-    reviewBtn.hidden = isGrocery || isCalendar || !ai.isConfigured();
+    reviewBtn.hidden = isGrocery || isSpecial || !ai.isConfigured();
 
     // Desktop shows the welcome card at the top of the page; on a phone it
     // lives on the home screen instead (see renderMobileHome).
     const welcomeSlot = document.getElementById("welcome-slot");
     welcomeSlot.innerHTML = "";
-    if (!isCalendar && !(mobileLayoutQuery && mobileLayoutQuery.matches) && welcomeVisible(state)) {
+    if (!isSpecial && !(mobileLayoutQuery && mobileLayoutQuery.matches) && welcomeVisible(state)) {
       welcomeSlot.appendChild(welcomeCardFor(state, false));
+    }
+
+    if (isMeals) {
+      renderMealPlan(state, page, tasks);
+      summaryEl.textContent = "";
+      renderTodayPanel(state);
+      return;
     }
 
     if (isCalendar) {
@@ -3154,7 +3476,7 @@ export function initUI(store, ai) {
       else if (hit.kind === "section") bits.push(hit.page.type === "grocery" ? "Category" : "Section");
       else {
         if (hit.page.type !== "calendar" && hit.section) bits.push(hit.section.name || "Untitled");
-        if (hit.task.dueDate) bits.push(hit.page.type === "calendar" ? new Date(hit.task.dueDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : (dueBadgeInfo(hit.task.dueDate) || {}).text);
+        if (hit.task.dueDate) bits.push(hit.page.type === "calendar" || hit.page.type === "meals" ? new Date(hit.task.dueDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : (dueBadgeInfo(hit.task.dueDate) || {}).text);
         if (hit.task.client) bits.push("👤 " + hit.task.client);
         const money = formatMoney(hit.task.value, currencyCode());
         if (money) bits.push(money);
@@ -3185,6 +3507,11 @@ export function initUI(store, ai) {
     }
     if (hit.kind === "task") {
       const task = hit.task;
+      if (page.type === "meals") {
+        if (task.dueDate) mealWeekByPage[page.id] = mealWeekStart(new Date(task.dueDate + "T00:00:00"));
+        jumpToPage(page.id);
+        return;
+      }
       if (page.type === "calendar") {
         if (task.dueDate) {
           const d = new Date(task.dueDate + "T00:00:00");

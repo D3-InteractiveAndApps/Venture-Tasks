@@ -114,7 +114,8 @@ export function computeReminders(state, prefs, nowStamp, sent, opts) {
         key,
         tag: "vt-daily",
         title: "Today: " + (nothing ? "nothing due" : parts.join(" · ")),
-        body: highlights.length ? listPreview(highlights, 3) : (items.events.length ? listPreview(items.events, 3) : "Enjoy the clear day."),
+        body: (highlights.length ? listPreview(highlights, 3) : (items.events.length ? listPreview(items.events, 3) : "Enjoy the clear day."))
+          + ((items.meals || []).length ? "\nTonight: " + items.meals.map((e) => e.task.text || "Dinner").join(", ") : ""),
         silent: nothing || !!o.appVisible,
         url: "./"
       });

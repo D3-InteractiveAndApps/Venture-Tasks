@@ -35,10 +35,17 @@ export function computeTodayItems(state, today) {
   const dueToday = [];
   const daily = [];
   const events = [];
+  const meals = [];
 
   (state.tasks || []).forEach((t) => {
     const page = pageById[t.pageId];
     if (!page || page.type === "grocery") return;
+    // A meal plan's entries are dinners, not chores: today's show up as
+    // "Tonight", and a past one is never overdue.
+    if (page.type === "meals") {
+      if (t.dueDate === day) meals.push({ task: t, page, section: sectionById[t.sectionId] || null });
+      return;
+    }
     const section = sectionById[t.sectionId] || null;
 
     if (page.type === "calendar") {
@@ -70,5 +77,5 @@ export function computeTodayItems(state, today) {
   // informational, and a daily task already done today isn't pending.
   const pendingCount = overdue.length + dueToday.length + daily.filter((e) => !e.task.done).length;
 
-  return { overdue, dueToday, daily, events, pendingCount };
+  return { overdue, dueToday, daily, events, meals, pendingCount };
 }

@@ -67,6 +67,7 @@
         <option value="tasks">To-do list</option>
         <option value="grocery">Grocery list</option>
         <option value="calendar">Family calendar</option>
+        <option value="meals">Meal plan</option>
       </select>
       <button id="mobile-add-page-confirm" type="button" class="primary-btn">Add list</button>
       <button id="mobile-add-page-cancel" type="button" class="secondary-btn">Cancel</button>
@@ -91,6 +92,7 @@
       <option value="tasks">To-do list</option>
       <option value="grocery">Grocery list</option>
       <option value="calendar">Family calendar</option>
+      <option value="meals">Meal plan</option>
     </select>
     <button id="add-page-confirm" type="button" class="primary-btn">Add page</button>
     <button id="add-page-cancel" type="button" class="secondary-btn">Cancel</button>
@@ -599,6 +601,41 @@
     <div class="modal-foot">
       <button id="calendar-add-event-delete" type="button" class="secondary-btn danger-btn" hidden>Delete</button>
       <button id="calendar-add-event-submit" type="button" class="primary-btn">Add event</button>
+    </div>
+  </div>
+</div>
+
+<!-- Meal plan: add/edit one meal (see renderMealPlan in ui.js). -->
+<div class="modal-overlay" id="meal-overlay" hidden>
+  <div class="modal" id="meal-modal" role="dialog" aria-modal="true" aria-labelledby="meal-title">
+    <div class="modal-head">
+      <h2 id="meal-title">Plan dinner</h2>
+      <button id="meal-close" type="button" class="del-btn" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span class="field-label">What&rsquo;s for dinner?</span>
+        <input id="meal-name" type="text" maxlength="120" list="meal-name-suggestions" placeholder="e.g. Chicken tacos" autocomplete="off" />
+        <datalist id="meal-name-suggestions"></datalist>
+        <span class="field-hint" id="meal-reuse-hint" hidden></span>
+      </label>
+      <label class="field">
+        <span class="field-label">Day</span>
+        <input id="meal-date" type="date" />
+      </label>
+      <label class="field">
+        <span class="field-label">Ingredients (one per line)</span>
+        <textarea id="meal-ingredients" rows="6" maxlength="3000" placeholder="Tortillas&#10;Chicken breast&#10;Salsa&#10;Shredded cheese"></textarea>
+      </label>
+      <label class="field">
+        <span class="field-label">Notes or recipe link (optional)</span>
+        <textarea id="meal-note" rows="2" maxlength="2000" placeholder="Prep time, who&rsquo;s cooking, a recipe link&hellip;"></textarea>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button id="meal-delete" type="button" class="secondary-btn danger-btn" hidden>Delete</button>
+      <button id="meal-shop" type="button" class="secondary-btn">&#128722; Save &amp; add to list</button>
+      <button id="meal-save" type="button" class="primary-btn">Save</button>
     </div>
   </div>
 </div>

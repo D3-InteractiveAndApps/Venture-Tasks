@@ -89,7 +89,7 @@ export function buildIcsCalendar(pages, sections, tasks, currency) {
     .filter((t) => t && !t.done && t.dueDate)
     .filter((t) => {
       const page = pageById[t.pageId];
-      return page && page.type !== "grocery";
+      return page && page.type !== "grocery" && page.type !== "meals";
     })
     .forEach((t) => {
       const page = pageById[t.pageId];
