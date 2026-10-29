@@ -1,0 +1,37 @@
+# Venture Tasks keep-alive.
+# Supabase pauses free projects after about a week with no activity, so this asks the
+# database for one row twice a week. It lives in GitHub at .github/workflows/keepalive.yml
+name: Supabase keep-alive
+on:
+  schedule:
+    - cron: "17 14 * * 1,4"   # Mondays and Thursdays, about 10 AM Eastern
+  workflow_dispatch: {}       # adds a "Run workflow" button for testing
+
+permissions:
+  actions: write              # lets the last step keep this schedule switched on
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        # Reads the project address and public key from the live site's
+        # supabase-config.js, so nothing needs copying in here. Row security
+        # means this signed-out request sees no one's data. It gets an empty
+        # list back, but it's still a real database query.
+        run: |
+          CFG=$(curl -fsS https://d3-interactiveandapps.github.io/Venture-Tasks/supabase-config.js)
+          URL=$(echo "$CFG" | grep -o 'SUPABASE_URL *= *"[^"]*"' | sed 's/.*"\(.*\)"/\1/')
+          KEY=$(echo "$CFG" | grep -o 'SUPABASE_ANON_KEY *= *"[^"]*"' | sed 's/.*"\(.*\)"/\1/')
+          test -n "$URL" && test -n "$KEY"
+          code=$(curl -s -o response.txt -w "%{http_code}" "$URL/rest/v1/app_state?select=user_id&limit=1" -H "apikey: $KEY")
+          echo "Supabase answered HTTP $code"
+          cat response.txt; echo
+          test "$code" = "200"
+
+      - name: Keep this schedule switched on
+        # GitHub turns off scheduled workflows in repos with no commits for 60 days.
+        # Re-enabling the workflow on every run resets that clock.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/keepalive.yml/enable"
