@@ -1,7 +1,7 @@
 // sw.js — minimal service worker: offline use + fast loading for the
 // home-screen app. Bump VERSION on every deploy so installed copies pick
 // up the new files instead of serving a stale cache forever.
-const VERSION = "v12";
+const VERSION = "v13";
 const CACHE_NAME = `venture-tasks-${VERSION}`;
 
 const APP_SHELL = [
@@ -48,7 +48,10 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      // cache: "reload" skips the browser's own HTTP cache, so a new
+      // version installs the new files, not copies GitHub said were fresh
+      // for 10 minutes.
+      .then((cache) => cache.addAll(APP_SHELL.map((u) => new Request(u, { cache: "reload" }))))
       .then(() => self.skipWaiting())
   );
 });

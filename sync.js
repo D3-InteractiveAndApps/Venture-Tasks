@@ -534,7 +534,8 @@ async function adoptSharedPage(sharedPage, role) {
 export async function joinSharedList(code) {
   const supabase = await ensureClient();
   if (!supabase || !session) throw new Error("Sign in first — shared lists need an account.");
-  const trimmed = (code || "").trim().toUpperCase();
+  // Forgive spaces, dashes or stray characters from copy-pasting.
+  const trimmed = (code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!trimmed) throw new Error("Enter an invite code.");
 
   const { data: sharedPage, error } = await supabase.rpc("redeem_share_code", { code: trimmed });

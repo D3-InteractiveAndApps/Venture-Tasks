@@ -43,7 +43,29 @@ initReminders(store);
 // Offline use + "add to home screen" support. Safe to skip silently if
 // unavailable (older browsers, or the site served over plain http://).
 if ("serviceWorker" in navigator) {
+  // When a new version of the app is published, its service worker takes
+  // over in the background. Reload once at that point so this screen
+  // actually runs the new code. Without this, an installed app (especially
+  // on a phone) could keep showing the old version for days. If you're in
+  // the middle of typing, the reload waits until the app is next in the
+  // background.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloadPending = false;
+  const reloadNow = () => { if (reloadPending) { reloadPending = false; window.location.reload(); } };
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloadPending) return;
+    reloadPending = true;
+    const el = document.activeElement;
+    const typing = el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.value)) && !el.closest("[hidden]");
+    if (!typing) reloadNow();
+    else document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") reloadNow(); });
+  });
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js").then((reg) => {
+      // Look for a new version whenever the app comes back to the screen.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update().catch(() => {});
+      });
+    }).catch(() => {});
   });
 }
